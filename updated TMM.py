@@ -483,7 +483,7 @@ elif st.session_state.page == "AyA_AI":
                     except Exception as e:
                         st.error(f"Error reading PDF: {e}")
 
-    # --- THE NEW FOOLPROOF CHAT & IMAGE PARSER ---
+    # --- THE FOOLPROOF CHAT & IMAGE PARSER ---
     def render_chat_content(text):
         if not text: 
             return
@@ -520,11 +520,11 @@ elif st.session_state.page == "AyA_AI":
                 try:
                     msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.aya_messages
                     
+                    # NOTE: Removed the max_tokens limit completely so Groq won't crash!
                     chat_completion = groq_client.chat.completions.create(
                         messages=msgs,
                         model="llama-3.3-70b-versatile",
-                        temperature=0.5,
-                        max_tokens=3000, # Dropped from 6000 to prevent API crashes
+                        temperature=0.5
                     )
                     
                     # Ensure we have a string even if the API glitches
@@ -536,7 +536,8 @@ elif st.session_state.page == "AyA_AI":
                     # Save it
                     st.session_state.aya_messages.append({"role": "assistant", "content": response_text})
                 except Exception as e:
-                    st.error(f"Network or API Error: Please try again.")
+                    # If it breaks again, we will actually see why instead of just silence!
+                    st.error(f"⚠️ Groq API Error: {str(e)}")
 
     if st.session_state.aya_messages:
         if user_input := st.chat_input("Ask a follow-up..."):
