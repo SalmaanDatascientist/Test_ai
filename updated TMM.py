@@ -6,6 +6,7 @@ import datetime
 import uuid
 import requests
 import hashlib
+import random
 from PIL import Image
 from groq import Groq
 from openai import OpenAI
@@ -100,11 +101,14 @@ def login_user(username, password):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(spreadsheet="https://docs.google.com/spreadsheets/d/18o58Ot15bBL2VA4uMib_HWJWgd112e2dKuil2YwojDk/edit?usp=sharing")
+        
         df.columns = df.columns.str.strip()
         df['username'] = df['username'].astype(str).str.strip()
         df['password'] = df['password'].astype(str).str.strip()
+        
         clean_username = username.strip()
         clean_password = password.strip()
+        
         user_row = df[df['username'] == clean_username]
         if not user_row.empty:
             stored_password = str(user_row.iloc[0]['password'])
@@ -268,19 +272,17 @@ elif st.session_state.page == "AyA_AI":
         st.error("⚠️ GROQ_API_KEY not found in Secrets! Please check your .streamlit/secrets.toml file.")
         st.stop()
 
-    # 🚨 THE STRICT JSON PROMPT
-    # Forces the AI to use an exact, machine-readable format so it can never break your app.
+    # 🚨 THE NEW SIMPLE, FOOLPROOF SYSTEM PROMPT 🚨
     SYSTEM_PROMPT = """You are **Aya**, the Lead AI Tutor at **The Molecular Man Expert Tuition Solutions**. 
     Your Mission: Guide students from "Zero" to "Hero".
 
-    CRITICAL INSTRUCTION - YOU MUST RESPOND IN JSON FORMAT ONLY:
-    You are communicating with a strict backend system. Do not write any normal conversational text. You MUST output ONLY a raw JSON object.
+    CRITICAL INSTRUCTION FOR DIAGRAMS:
+    If a student asks for a visual, diagram, or image, you MUST provide the description wrapped inside exact <IMAGE> tags. 
     
-    Format:
-    {
-      "explanation": "Your full, detailed educational response to the student goes here. You can use markdown and emojis inside this string.",
-      "image_prompt": "If a visual is needed, write a very short, highly descriptive image prompt (under 20 words). If no image is needed, write null."
-    }
+    Example:
+    <IMAGE>A highly detailed, photorealistic 3D render of a water molecule showing hydrogen and oxygen</IMAGE>
+
+    DO NOT use markdown links like ![alt](url). ONLY use the <IMAGE> tags. Keep the description under 40 words.
     """
 
     with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
@@ -310,13 +312,58 @@ elif st.session_state.page == "AyA_AI":
                     except Exception as e:
                         st.error(f"Error reading PDF: {e}")
 
+    # --- 🚨 THE NEW FOOLPROOF FRONTEND PARSER 🚨 ---
+    def render_chat_content(text):
+        if not text: 
+            return
+            
+        # Nuke any hallucinated markdown links so they don't break the UI
+        text = text.replace("[IMAGE:", "<IMAGE>").replace("]", "</IMAGE>")
+        text = re.sub(r'!\[([^\]]*)\](?:\([^\)]*\))?', r'<IMAGE>\1</IMAGE>', text)
+        
+        # Split text by the exact tags
+        parts = re.split(r'<IMAGE>(.*?)</IMAGE>', text, flags=re.IGNORECASE | re.DOTALL)
+        
+        for i, part in enumerate(parts):
+            if i % 2 == 0:
+                # Normal text
+                if part.strip():
+                    st.markdown(part)
+            else:
+                # The image prompt
+                prompt = part.strip().replace('\n', ' ')
+                if prompt:
+                    safe_prompt = urllib.parse.quote(prompt[:200])
+                    seed = random.randint(1, 100000)
+                    
+                    # Clean, standard URL. NO nologo. NO backend fetching.
+                    url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&seed={seed}"
+                    
+                    st.markdown(f"🎨 **AyA Visual:** *{prompt}*")
+                    
+                    # Direct HTML injection with no-referrer. 
+                    # Your mobile browser fetches the image directly.
+                    img_html = f'''
+                    <div style="margin: 15px 0;">
+                        <img src="{url}" referrerpolicy="no-referrer" 
+                             style="width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" 
+                             onerror="this.onerror=null; this.src='https://placehold.co/800x400/1e3a5f/FFFFFF/png?text=Image+Blocked+by+Safety+Filter';">
+                    </div>
+                    '''
+                    st.markdown(img_html, unsafe_allow_html=True)
+
+    # Render History
     for msg in st.session_state.aya_messages:
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            if msg["role"] == "assistant":
+                render_chat_content(msg["content"])
+            else:
+                st.markdown(msg["content"])
 
+    # Process New AI Message
     if st.session_state.aya_messages and st.session_state.aya_messages[-1]["role"] == "user":
         with st.chat_message("assistant"):
-            with st.spinner("🤖 AyA is analyzing..."):
+            with st.spinner("🤖 AyA is analyzing and drawing..."):
                 try:
                     msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.aya_messages
                     
@@ -326,51 +373,13 @@ elif st.session_state.page == "AyA_AI":
                         temperature=0.5
                     )
                     
-                    raw_response = chat_completion.choices[0].message.content or ""
+                    response_text = chat_completion.choices[0].message.content or ""
                     
-                    ai_explanation = raw_response
-                    img_prompt = None
+                    # Render it safely
+                    render_chat_content(response_text)
                     
-                    # 🚨 THE SAFEST PARSER POSSIBLE
-                    # Extracts the JSON cleanly. If the AI messes up, it degrades gracefully.
-                    try:
-                        json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
-                        if json_match:
-                            parsed_data = json.loads(json_match.group(0))
-                            ai_explanation = parsed_data.get("explanation", raw_response)
-                            img_prompt = parsed_data.get("image_prompt", None)
-                    except Exception:
-                        ai_explanation = raw_response
-                    
-                    # 1. Print the text explanation
-                    st.markdown(ai_explanation)
-                    
-                    # 2. Handle the Image Generation with Graceful Failures
-                    if img_prompt and str(img_prompt).lower() not in ['null', 'none', '']:
-                        safe_prompt = urllib.parse.quote(str(img_prompt).strip())
-                        seed = uuid.uuid4().hex[:8]
-                        
-                        # Use standard model, no complex queries, letting the browser fetch it
-                        url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true&seed={seed}"
-                        
-                        # This HTML block displays the image. 
-                        # IF the external server blocks the request (e.g. NSFW filter on anatomy), 
-                        # the "onerror" script hides the broken icon and shows a professional warning message instead.
-                        html_code = f"""
-                        <div style="margin-top: 15px; border-radius: 10px; overflow: hidden; border: 1px solid #444; background: rgba(0,0,0,0.2);">
-                            <img src="{url}" alt="{img_prompt}" style="width: 100%; display: block;" 
-                                 onerror="this.style.display='none'; document.getElementById('fb-{seed}').style.display='block';">
-                            <div id="fb-{seed}" style="display: none; background-color: rgba(255,0,0,0.1); color: #ff8888; padding: 20px; text-align: center; font-family: sans-serif;">
-                                <h4 style="color:#ff4444; margin-top:0;">⚠️ Visual Blocked by External Server</h4>
-                                <p style="font-size: 14px; margin-bottom: 0;">The external AI image server blocked this request. This usually happens when automated safety filters flag anatomical, biological, or medical terminology.</p>
-                            </div>
-                        </div>
-                        <p style="color: #aaa; font-size: 12px; font-style: italic; text-align: center; margin-top: 5px;">AyA Visual Generator</p>
-                        """
-                        st.markdown(html_code, unsafe_allow_html=True)
-
-                    # 3. Save ONLY the text to the chat history
-                    st.session_state.aya_messages.append({"role": "assistant", "content": ai_explanation})
+                    # Save to history
+                    st.session_state.aya_messages.append({"role": "assistant", "content": response_text})
 
                 except Exception as e:
                     st.error(f"⚠️ Groq API Error: {str(e)}")
@@ -523,6 +532,7 @@ elif st.session_state.page == "Live Class":
                     
                     if status["is_live"]:
                         st.success(f"✅ Class is LIVE: {status['topic']}")
+                        
                         raw_link = status['link'].strip()
                         if not raw_link.startswith("http://") and not raw_link.startswith("https://"):
                             final_display_link = "https://" + raw_link
@@ -530,6 +540,7 @@ elif st.session_state.page == "Live Class":
                             final_display_link = raw_link
 
                         st.markdown(f"**Current Link:** {final_display_link}")
+                        
                         st.markdown(f"""
                             <div style="text-align:center; margin: 20px;">
                                 <a href="{final_display_link}" target="_blank" style="text-decoration:none;">
@@ -553,6 +564,7 @@ elif st.session_state.page == "Live Class":
                                 if topic and meet_link:
                                     if not meet_link.startswith("http://") and not meet_link.startswith("https://"):
                                         meet_link = "https://" + meet_link
+
                                     set_live_status(True, topic, meet_link)
                                     add_notification(f"🔴 Live Class Started: {topic}. Join now!")
                                     st.rerun()
@@ -768,21 +780,46 @@ elif st.session_state.page == "Contact":
                 if name and phone and msg:
                     subject = f"Tuition Inquiry from {name}"
                     body = f"Name: {name}\nPhone: {phone}\nGrade: {grade}\n\nMessage:\n{msg}"
+                    
                     safe_subject = urllib.parse.quote(subject)
                     safe_body = urllib.parse.quote(body)
+                    
                     mailto_link = f"mailto:the.molecularmanexpert@gmail.com?subject={safe_subject}&body={safe_body}"
                     
                     st.markdown(f"""
                     <a href="{mailto_link}" target="_blank" style="text-decoration: none;">
-                        <div style="width: 100%; background: linear-gradient(90deg, #1e3a5f, #3b6b9e); color: white; text-align: center; padding: 12px; border-radius: 25px; font-weight: bold; border: 1px solid white; margin-top: 10px; cursor: pointer;">
+                        <div style="
+                            width: 100%;
+                            background: linear-gradient(90deg, #1e3a5f, #3b6b9e);
+                            color: white;
+                            text-align: center;
+                            padding: 12px;
+                            border-radius: 25px;
+                            font-weight: bold;
+                            border: 1px solid white;
+                            margin-top: 10px;
+                            cursor: pointer;
+                        ">
                             🚀 Click to Send Email
                         </div>
                     </a>
-                    <div style="text-align:center; font-size:12px; color:#aaa; margin-top:5px;">(Opens your default email app)</div>
+                    <div style="text-align:center; font-size:12px; color:#aaa; margin-top:5px;">
+                        (Opens your default email app)
+                    </div>
                     """, unsafe_allow_html=True)
                 else:
                     st.markdown("""
-                    <div style="width: 100%; background: #444; color: #888; text-align: center; padding: 12px; border-radius: 25px; font-weight: bold; border: 1px solid #555; margin-top: 10px;">
+                    <div style="
+                        width: 100%;
+                        background: #444;
+                        color: #888;
+                        text-align: center;
+                        padding: 12px;
+                        border-radius: 25px;
+                        font-weight: bold;
+                        border: 1px solid #555;
+                        margin-top: 10px;
+                    ">
                         Fill details to enable Send
                     </div>
                     """, unsafe_allow_html=True)
@@ -795,10 +832,36 @@ st.write("")
 with st.container(border=True):
     st.markdown("""
         <style>
-        @keyframes gradient-animation { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
-        .animated-footer-text { font-weight: 800; font-size: 24px; text-transform: uppercase; text-align: center; letter-spacing: 2px; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 300%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; color: transparent; animation: gradient-animation 10s ease infinite; }
+        @keyframes gradient-animation {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        .animated-footer-text {
+            font-weight: 800;
+            font-size: 24px;
+            text-transform: uppercase;
+            text-align: center;
+            letter-spacing: 2px;
+            background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000);
+            background-size: 300%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent; 
+            background-clip: text;
+            color: transparent;
+            animation: gradient-animation 10s ease infinite;
+        }
         </style>
-        <div class="animated-footer-text">PRECISE • PASSIONATE • PROFESSIONAL</div>
+        
+        <div class="animated-footer-text">
+            PRECISE • PASSIONATE • PROFESSIONAL
+        </div>
     """, unsafe_allow_html=True)
     
-    st.markdown("<div style='text-align: center; color: gray; font-size: 12px; margin-top: 10px;'>© 2026 The Molecular Man Expert Tuition Solutions | Mohammed Salmaan M. All Rights Reserved.</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='text-align: center; color: gray; font-size: 12px; margin-top: 10px;'>"
+        "© 2026 The Molecular Man Expert Tuition Solutions | Mohammed Salmaan M. All Rights Reserved."
+        "</div>", 
+        unsafe_allow_html=True
+    )
