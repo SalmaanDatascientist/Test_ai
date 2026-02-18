@@ -447,12 +447,12 @@ elif st.session_state.page == "AyA_AI":
     Tone: Encouraging, clear, patient, and intellectually rigorous.
 
     CRITICAL INSTRUCTION FOR IMAGES: 
-    If a student asks for a visual, diagram, or illustration, output a short description inside square brackets starting with "IMAGE:".
+    If a student asks for a visual or diagram, output a short description inside square brackets starting with "IMAGE:".
     
     Example format exactly like this:
     [IMAGE: A simple 2D diagram of a glass slab showing lateral displacement of light]
     
-    DO NOT use Markdown links. DO NOT output URLs. ONLY use the [IMAGE: description] format. Keep the description under 150 characters.
+    Keep descriptions under 100 characters. DO NOT use markdown links.
     """
 
     with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
@@ -482,17 +482,19 @@ elif st.session_state.page == "AyA_AI":
                     except Exception as e:
                         st.error(f"Error reading PDF: {e}")
 
-    # --- THE FIXED CHAT & IMAGE PARSER ---
+    # --- THE BULLETPROOF CHAT & IMAGE PARSER ---
     def render_chat_content(text):
         if not text: 
             return
             
-        # Catch any stubborn markdown images the AI creates by accident
-        # and convert them to our tag format so we can process them safely.
-        text = re.sub(r'!\[([^\]]+)\]\([^\)]+\)', r'[IMAGE: \1]', text)
+        # 1. Aggressively catch any broken markdown the AI accidentally creates (e.g. ![Diagram])
+        # This converts ![alt](url) OR ![alt] straight into our safe [IMAGE: alt] tag
+        text = re.sub(r'!\[([^\]]+)\](?:\([^\)]+\))?', r'[IMAGE: \1]', text)
+        
+        # 2. Catch any double brackets [[IMAGE: ...]]
         text = re.sub(r'\[\[IMAGE:\s*(.*?)\]\]', r'[IMAGE: \1]', text, flags=re.IGNORECASE)
         
-        # Split the text by our safe [IMAGE: ...] tags
+        # 3. Split the text by our safe [IMAGE: ...] tags
         parts = re.split(r'\[IMAGE:\s*(.*?)\]', text, flags=re.IGNORECASE | re.DOTALL)
         
         for i, part in enumerate(parts):
@@ -501,21 +503,29 @@ elif st.session_state.page == "AyA_AI":
                 if part.strip():
                     st.markdown(part)
             else:
-                # Image Tag Captured
+                # Image Tag Captured!
                 prompt = part.strip().replace('\n', ' ')
                 if prompt:
-                    # Truncate prompt so the URL doesn't get too long for Streamlit
-                    short_prompt = prompt[:200]
+                    # Truncate prompt so it doesn't break the server URL limits
+                    short_prompt = prompt[:150]
                     safe_prompt = urllib.parse.quote(short_prompt)
                     
-                    # 🚨 THE FIX: The CORRECT pollinations server URL!
-                    # We pass this URL straight to Streamlit to load natively. No backend fetching. No timeouts.
+                    # Correct image API URL
                     url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true"
                     
-                    try:
-                        st.image(url, caption=f"AyA Visual: {short_prompt}", use_container_width=True)
-                    except Exception:
-                        st.warning("⚠️ Diagram could not be rendered.")
+                    # Safely download the image behind the scenes
+                    with st.spinner(f"🎨 AyA is drawing: {short_prompt[:30]}..."):
+                        try:
+                            # 🚨 This prevents the "0" broken image icon!
+                            # We fetch it manually so we can catch 403 (NSFW filters) or 500 errors gracefully
+                            response = requests.get(url, timeout=12)
+                            
+                            if response.status_code == 200:
+                                st.image(response.content, caption=f"AyA Visual: {short_prompt}", use_container_width=True)
+                            else:
+                                st.warning(f"⚠️ Diagram could not be generated (Safety Filter or Server Error).")
+                        except Exception:
+                            st.warning("⚠️ Diagram generation timed out. Please try again.")
 
     for msg in st.session_state.aya_messages:
         with st.chat_message(msg["role"]):
@@ -538,7 +548,7 @@ elif st.session_state.page == "AyA_AI":
                     
                     response_text = chat_completion.choices[0].message.content or ""
                     
-                    # Pass it to our safe parser
+                    # Pass it to our safe backend parser
                     render_chat_content(response_text)
                     
                     # Save it
