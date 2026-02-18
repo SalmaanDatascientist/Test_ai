@@ -6,10 +6,12 @@ import datetime
 import uuid
 import requests
 import hashlib
+import random
 from PIL import Image
 from groq import Groq
 from openai import OpenAI
 import PyPDF2
+import re
 import urllib.parse
 from streamlit_gsheets import GSheetsConnection
 
@@ -66,7 +68,7 @@ def init_files():
 init_files()
 
 # -----------------------------------------------------------------------------
-# 3. HELPER FUNCTIONS & VERIFIED MEDIA ENGINE
+# 3. HELPER FUNCTIONS
 # -----------------------------------------------------------------------------
 def get_image_path(filename_base):
     extensions = [".png", ".jpg", ".jpeg", ".webp", ".gif"]
@@ -91,45 +93,6 @@ def render_image(filename, caption=None, width=None, use_column_width=False):
     except:
         return False
 
-# 🚨 THE NEW VERIFIED TEXTBOOK MEDIA ENGINE 🚨
-# This bypasses all AI hallucinations, Cloudflare blocks, and NSFW filters
-# by directly fetching factual, educational diagrams from the open Wikipedia API.
-@st.cache_data(ttl=3600, show_spinner=False)
-def fetch_wiki_image(query):
-    search_url = "https://en.wikipedia.org/w/api.php"
-    search_params = {
-        "action": "query",
-        "list": "search",
-        "srsearch": query,
-        "format": "json",
-        "utf8": 1,
-        "srlimit": 1
-    }
-    try:
-        headers = {"User-Agent": "MolecularManTutorApp/1.0 (Educational App)"}
-        search_res = requests.get(search_url, params=search_params, headers=headers, timeout=10).json()
-        
-        if search_res.get('query', {}).get('search'):
-            title = search_res['query']['search'][0]['title']
-            
-            img_params = {
-                "action": "query",
-                "format": "json",
-                "prop": "pageimages",
-                "titles": title,
-                "pithumbsize": 1000, # Pulls high-resolution textbook images
-                "redirects": 1
-            }
-            img_res = requests.get(search_url, params=img_params, headers=headers, timeout=10).json()
-            pages = img_res.get('query', {}).get('pages', {})
-            
-            for page_id in pages:
-                if 'thumbnail' in pages[page_id]:
-                    return pages[page_id]['thumbnail']['source'], title
-    except Exception:
-        return None, None
-    return None, None
-
 # Auth Helpers
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
@@ -138,11 +101,14 @@ def login_user(username, password):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(spreadsheet="https://docs.google.com/spreadsheets/d/18o58Ot15bBL2VA4uMib_HWJWgd112e2dKuil2YwojDk/edit?usp=sharing")
+        
         df.columns = df.columns.str.strip()
         df['username'] = df['username'].astype(str).str.strip()
         df['password'] = df['password'].astype(str).str.strip()
+        
         clean_username = username.strip()
         clean_password = password.strip()
+        
         user_row = df[df['username'] == clean_username]
         if not user_row.empty:
             stored_password = str(user_row.iloc[0]['password'])
@@ -188,9 +154,11 @@ st.markdown("""
     .stApp { background: linear-gradient(135deg, #004e92 0%, #000428 100%) !important; background-attachment: fixed; }
     .block-container { padding-top: 1rem !important; padding-bottom: 5rem !important; }
     h1, h2, h3, h4, h5, h6, p, div, span, li, label, .stMarkdown { color: #ffffff !important; }
+    
     div.stButton > button { background: linear-gradient(90deg, #1e3a5f, #3b6b9e, #1e3a5f); color: white !important; border-radius: 25px !important; border: 1px solid rgba(255,255,255,0.2) !important; }
     div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
     div[data-testid="stFormSubmitButton"] > button { background: #1e3a5f !important; color: #ffffff !important; border: 2px solid white !important; }
+    
     .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div { background-color: rgba(255, 255, 255, 0.1) !important; color: #ffffff !important; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3) !important; }
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     .stDeployButton {display: none;}
@@ -331,7 +299,7 @@ elif st.session_state.page == "AyA_AI":
     """, unsafe_allow_html=True)
 
     st.markdown("## 🧠 AyA - The Molecular Man AI")
-    st.caption("Your personal AI Tutor with the Wikipedia Verified Media Engine.")
+    st.caption("Your personal AI Tutor for Math, Science, Coding, and High-Fidelity Diagrams.")
 
     try:
         groq_api_key = st.secrets["GROQ_API_KEY"]
@@ -340,18 +308,17 @@ elif st.session_state.page == "AyA_AI":
         st.error("⚠️ GROQ_API_KEY not found in Secrets! Please check your .streamlit/secrets.toml file.")
         st.stop()
 
-    # 🚨 THE INDESTRUCTIBLE FORMATTING PROMPT 🚨
+    # 🚨 STRICT JSON PROMPT - PREVENTS URL CORRUPTION AND TEXT ERRORS
     SYSTEM_PROMPT = """You are **Aya**, the Lead AI Tutor at **The Molecular Man Expert Tuition Solutions**. 
-    Your Mission: Guide students from "Zero" to "Hero".
 
-    CRITICAL INSTRUCTION - STRICT FORMATTING:
-    You MUST format your response using EXACTLY these two sections. Do not add any conversational filler before or after these labels.
-
-    ===EXPLANATION===
-    [Your detailed educational response goes here. Use markdown, emojis, clear formatting, and step-by-step logic.]
-
-    ===SEARCH_TERM===
-    [If a visual diagram is needed to help explain the concept, write a simple 1-3 word Wikipedia search term to find a real textbook diagram (e.g., "Plant cell", "Refraction", "Digestive system", "Breast"). If NO image is needed, write the exact word "NONE"]
+    CRITICAL INSTRUCTION - JSON OUTPUT ONLY:
+    You MUST output your response as a valid JSON object. DO NOT output any markdown outside of the JSON.
+    
+    Use this exact JSON format:
+    {
+      "text": "Your detailed educational response goes here. Use markdown formatting.",
+      "image_prompt": "If a diagram is needed, write a short, 5-to-10 word prompt describing an educational diagram (e.g., 'detailed diagram of lateral displacement in a glass slab'). Keep it under 10 words to prevent URL corruption. Use ONLY letters and spaces. If no image is needed, write null."
+    }
     """
 
     with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
@@ -387,7 +354,7 @@ elif st.session_state.page == "AyA_AI":
 
     if st.session_state.aya_messages and st.session_state.aya_messages[-1]["role"] == "user":
         with st.chat_message("assistant"):
-            with st.spinner("🤖 AyA is analyzing..."):
+            with st.spinner("🤖 AyA is analyzing and drawing..."):
                 try:
                     msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.aya_messages
                     
@@ -397,37 +364,57 @@ elif st.session_state.page == "AyA_AI":
                         temperature=0.5
                     )
                     
-                    response_text = chat_completion.choices[0].message.content or ""
+                    raw_response = chat_completion.choices[0].message.content or ""
                     
-                    # --- 🚨 THE NEW VERIFIED MEDIA PARSER 🚨 ---
-                    if "===SEARCH_TERM===" in response_text:
-                        parts = response_text.split("===SEARCH_TERM===")
-                        ai_explanation = parts[0].replace("===EXPLANATION===", "").strip()
-                        search_term = parts[1].strip()
-                    else:
-                        # Safety fallback if AI forgets formatting
-                        ai_explanation = response_text.replace("===EXPLANATION===", "").strip()
-                        search_term = "NONE"
+                    ai_text = raw_response
+                    img_prompt = None
                     
-                    # 1. Print Text
-                    st.markdown(ai_explanation)
+                    # Cleanly extract JSON
+                    try:
+                        json_match = re.search(r'\{[\s\S]*\}', raw_response)
+                        if json_match:
+                            data = json.loads(json_match.group())
+                            ai_text = data.get("text", raw_response)
+                            img_prompt = data.get("image_prompt", None)
+                    except Exception:
+                        pass
                     
-                    # 2. Fetch and Render Real Textbook Diagram (100% Unblockable)
-                    if search_term and search_term.upper() != "NONE":
-                        with st.spinner(f"📚 Fetching verified textbook diagram for '{search_term}'..."):
-                            img_url, wiki_title = fetch_wiki_image(search_term)
-                            
-                            if img_url:
-                                st.markdown(f"**📚 Verified Educational Diagram:** *{wiki_title} (Source: Wikipedia)*")
-                                st.image(img_url, use_container_width=True)
-                            else:
-                                st.caption(f"*(AyA searched for a verified textbook diagram of '{search_term}', but no specific image was found in the database.)*")
-
-                    # 3. Save ONLY the text to history to keep the app clean
-                    st.session_state.aya_messages.append({"role": "assistant", "content": ai_explanation})
+                    st.markdown(ai_text)
+                    
+                    # 🚨 THE UNBREAKABLE FLUX IMAGE RENDERER 🚨
+                    if img_prompt and str(img_prompt).lower() not in ['null', 'none', '']:
+                        # Force prompt to be short and clean so it doesn't break the web URL
+                        clean_prompt = re.sub(r'[^a-zA-Z0-9\s]', '', str(img_prompt))[:100]
+                        prompt_with_style = f"Highly detailed educational textbook diagram of {clean_prompt}, clear labels, white background"
+                        safe_prompt = urllib.parse.quote(prompt_with_style)
+                        
+                        seed = random.randint(1, 100000)
+                        
+                        # We use the official FLUX engine endpoint. No backend fetching.
+                        url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&model=flux&nologo=true&seed={seed}"
+                        
+                        # The Fallback Image. If Pollinations NSFW filter blocks "breast", this beautiful graphic loads instead.
+                        error_img = "https://placehold.co/800x400/1e3a5f/FFFFFF/png?text=Image+Blocked+By+AI+Safety+Filter"
+                        
+                        st.markdown(f"🎨 **AyA Visual Engine:** *{clean_prompt}*")
+                        
+                        # The raw HTML injection. 
+                        # `referrerpolicy` hides Streamlit from Cloudflare.
+                        # `onerror` prevents the broken '0' icon and gracefully swaps to the error image.
+                        html_code = f'''
+                        <div style="margin: 15px 0;">
+                            <img src="{url}" 
+                                 referrerpolicy="no-referrer" 
+                                 style="width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" 
+                                 onerror="this.onerror=null; this.src='{error_img}';">
+                        </div>
+                        '''
+                        st.markdown(html_code, unsafe_allow_html=True)
+                    
+                    st.session_state.aya_messages.append({"role": "assistant", "content": ai_text})
 
                 except Exception as e:
-                    st.error(f"⚠️ Groq API Error: {str(e)}")
+                    st.error(f"⚠️ API Error: {str(e)}")
 
     if st.session_state.aya_messages:
         if user_input := st.chat_input("Ask a follow-up..."):
