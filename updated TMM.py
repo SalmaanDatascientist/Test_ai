@@ -563,29 +563,55 @@ if st.session_state.aya_messages and st.session_state.aya_messages[-1]["role"] =
                 response_text = chat_completion.choices[0].message.content
                 
                 # --- BULLETPROOF IMAGE PARSER ---
-                def render_images(text):
-                    def replacer(match):
-                        prompt = match.group(1).strip()
-                        # Python perfectly encodes the spaces and special characters
-                        safe_prompt = urllib.parse.quote(prompt)
-                        return f"![{prompt}](https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true)"
-                    
-                    # Find anything inside <IMAGE> tags and replace it with the working URL
-                    return re.sub(r'<IMAGE>(.*?)</IMAGE>', replacer, text, flags=re.IGNORECASE | re.DOTALL)
+                # 7. BULLETPROOF CHAT & IMAGE RENDERER
+def render_chat_content(text):
+    # Split text by the <IMAGE> tags
+    parts = re.split(r'<IMAGE>(.*?)</IMAGE>', text, flags=re.IGNORECASE | re.DOTALL)
+    for i, part in enumerate(parts):
+        if i % 2 == 0:
+            # Text parts
+            if part.strip():
+                st.markdown(part)
+        else:
+            # Image parts (Using Streamlit's native st.image)
+            prompt = part.strip().replace('\n', ' ')
+            safe_prompt = urllib.parse.quote(prompt)
+            url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true"
+            try:
+                st.image(url, caption=f"AyA visual: {prompt}", use_container_width=True)
+            except Exception as e:
+                st.warning("⚠️ Image took too long to generate. Try asking for a simpler diagram.")
+
+# Display Chat History
+for msg in st.session_state.aya_messages:
+    with st.chat_message(msg["role"]):
+        if msg["role"] == "assistant":
+            render_chat_content(msg["content"])
+        else:
+            st.markdown(msg["content"])
+
+# 8. Handle AI Response
+if st.session_state.aya_messages and st.session_state.aya_messages[-1]["role"] == "user":
+    with st.chat_message("assistant"):
+        with st.spinner("🤖 AyA is drawing and thinking..."):
+            try:
+                msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.aya_messages
                 
-                final_text = render_images(response_text)
-                # ---------------------------------
+                chat_completion = groq_client.chat.completions.create(
+                    messages=msgs,
+                    model="llama-3.3-70b-versatile",
+                    temperature=0.5,
+                    max_tokens=6000,
+                )
+                response_text = chat_completion.choices[0].message.content
                 
-                st.markdown(final_text)
-                st.session_state.aya_messages.append({"role": "assistant", "content": final_text})
+                # Render text and images instantly
+                render_chat_content(response_text)
+                
+                # Save to memory
+                st.session_state.aya_messages.append({"role": "assistant", "content": response_text})
             except Exception as e:
                 st.error(f"Error generating response: {str(e)}")
-
-# 9. Follow-up Chat Input
-if st.session_state.aya_messages:
-    if user_input := st.chat_input("Ask a follow-up..."):
-        st.session_state.aya_messages.append({"role": "user", "content": user_input})
-        st.rerun()
 
 # ==========================================
 # PAGE: MOCK TEST
@@ -1093,6 +1119,7 @@ with st.container(border=True):
         "</div>", 
         unsafe_allow_html=True
     )
+
 
 
 
