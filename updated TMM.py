@@ -5,8 +5,8 @@ import base64
 import datetime
 import uuid
 import requests
+import time
 import hashlib
-import random
 from PIL import Image
 from groq import Groq
 from openai import OpenAI
@@ -39,22 +39,18 @@ if 'page' not in st.session_state:
 if "username" not in st.session_state:
     st.session_state.username = "Student"
 
-# Auth State for Live Class
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 
-# AI Tutor State
 if "aya_messages" not in st.session_state:
     st.session_state.aya_messages = []
 
-# Mock Test State
 if 'mt_questions' not in st.session_state: st.session_state.mt_questions = None
 if 'mt_answers' not in st.session_state: st.session_state.mt_answers = {}
 if 'mt_feedback' not in st.session_state: st.session_state.mt_feedback = None
 
-# Files
 NOTIFICATIONS_FILE = "notifications.json"
 LIVE_STATUS_FILE = "live_status.json"
 
@@ -93,7 +89,6 @@ def render_image(filename, caption=None, width=None, use_column_width=False):
     except:
         return False
 
-# Auth Helpers
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -101,7 +96,6 @@ def login_user(username, password):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(spreadsheet="https://docs.google.com/spreadsheets/d/18o58Ot15bBL2VA4uMib_HWJWgd112e2dKuil2YwojDk/edit?usp=sharing")
-        
         df.columns = df.columns.str.strip()
         df['username'] = df['username'].astype(str).str.strip()
         df['password'] = df['password'].astype(str).str.strip()
@@ -119,7 +113,6 @@ def login_user(username, password):
         st.error(f"Login Error: {e}")
         return False
 
-# Data Helpers
 def get_notifications():
     try:
         with open(NOTIFICATIONS_FILE, "r") as f:
@@ -154,9 +147,11 @@ st.markdown("""
     .stApp { background: linear-gradient(135deg, #004e92 0%, #000428 100%) !important; background-attachment: fixed; }
     .block-container { padding-top: 1rem !important; padding-bottom: 5rem !important; }
     h1, h2, h3, h4, h5, h6, p, div, span, li, label, .stMarkdown { color: #ffffff !important; }
+    
     div.stButton > button { background: linear-gradient(90deg, #1e3a5f, #3b6b9e, #1e3a5f); color: white !important; border-radius: 25px !important; border: 1px solid rgba(255,255,255,0.2) !important; }
     div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
     div[data-testid="stFormSubmitButton"] > button { background: #1e3a5f !important; color: #ffffff !important; border: 2px solid white !important; }
+    
     .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div { background-color: rgba(255, 255, 255, 0.1) !important; color: #ffffff !important; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3) !important; }
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     .stDeployButton {display: none;}
@@ -164,10 +159,6 @@ st.markdown("""
     .hero-ad-box { background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(12px); border: 2px solid #ffd700; border-radius: 20px; padding: 40px 20px; margin: 30px 0; text-align: center; }
     .hero-headline { font-size: 32px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; background: linear-gradient(to right, #ffffff, #ffd700); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 15px; }
     .hero-subhead { font-size: 18px; color: #e0e0e0; margin-bottom: 25px; font-weight: 300; }
-    .hero-suite-title { font-size: 22px; color: #00ffff; font-weight: 800; text-transform: uppercase; margin-bottom: 20px; text-shadow: 0 0 10px rgba(0, 255, 255, 0.5); }
-    .hero-feature-grid { display: flex; justify-content: center; gap: 30px; margin-bottom: 30px; flex-wrap: wrap; }
-    .hero-feature-item { background: rgba(255, 255, 255, 0.05); padding: 15px 25px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); text-align: left; max-width: 400px; }
-    .hero-footer { font-size: 14px; font-weight: 800; color: #ff4d4d; letter-spacing: 1.5px; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 15px; margin-top: 10px; }
     
     .founder-header-container { text-align: center; padding: 35px 20px; background: linear-gradient(135deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.2) 100%); backdrop-filter: blur(10px); border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 30px; }
     .founder-headline { font-size: 2.2rem; font-weight: 900; background: linear-gradient(to right, #ffffff 0%, #a1c4fd 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 15px; }
@@ -272,17 +263,19 @@ elif st.session_state.page == "AyA_AI":
         st.error("⚠️ GROQ_API_KEY not found in Secrets! Please check your .streamlit/secrets.toml file.")
         st.stop()
 
-    # 🚨 THE NEW SIMPLE, FOOLPROOF SYSTEM PROMPT 🚨
+    # 🚨 THE STRICT JSON PROMPT
+    # Forces the AI to use an exact, machine-readable format so it never hallucinates broken markdown text.
     SYSTEM_PROMPT = """You are **Aya**, the Lead AI Tutor at **The Molecular Man Expert Tuition Solutions**. 
     Your Mission: Guide students from "Zero" to "Hero".
 
-    CRITICAL INSTRUCTION FOR DIAGRAMS:
-    If a student asks for a visual, diagram, or image, you MUST provide the description wrapped inside exact <IMAGE> tags. 
+    CRITICAL INSTRUCTION - YOU MUST RESPOND IN JSON FORMAT ONLY:
+    You are communicating with a strict backend system. Do not write any normal conversational text outside of the JSON block.
     
-    Example:
-    <IMAGE>A highly detailed, photorealistic 3D render of a water molecule showing hydrogen and oxygen</IMAGE>
-
-    DO NOT use markdown links like ![alt](url). ONLY use the <IMAGE> tags. Keep the description under 40 words.
+    Format:
+    {
+      "explanation": "Your full, detailed educational response goes here. Use markdown.",
+      "image_query": "If a visual is needed, write a short, 3-to-6 word search query for the image (e.g. 'water molecule 3d' or 'refraction glass prism'). If no image is needed, write null."
+    }
     """
 
     with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
@@ -312,58 +305,15 @@ elif st.session_state.page == "AyA_AI":
                     except Exception as e:
                         st.error(f"Error reading PDF: {e}")
 
-    # --- 🚨 THE NEW FOOLPROOF FRONTEND PARSER 🚨 ---
-    def render_chat_content(text):
-        if not text: 
-            return
-            
-        # Nuke any hallucinated markdown links so they don't break the UI
-        text = text.replace("[IMAGE:", "<IMAGE>").replace("]", "</IMAGE>")
-        text = re.sub(r'!\[([^\]]*)\](?:\([^\)]*\))?', r'<IMAGE>\1</IMAGE>', text)
-        
-        # Split text by the exact tags
-        parts = re.split(r'<IMAGE>(.*?)</IMAGE>', text, flags=re.IGNORECASE | re.DOTALL)
-        
-        for i, part in enumerate(parts):
-            if i % 2 == 0:
-                # Normal text
-                if part.strip():
-                    st.markdown(part)
-            else:
-                # The image prompt
-                prompt = part.strip().replace('\n', ' ')
-                if prompt:
-                    safe_prompt = urllib.parse.quote(prompt[:200])
-                    seed = random.randint(1, 100000)
-                    
-                    # Clean, standard URL. NO nologo. NO backend fetching.
-                    url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&seed={seed}"
-                    
-                    st.markdown(f"🎨 **AyA Visual:** *{prompt}*")
-                    
-                    # Direct HTML injection with no-referrer. 
-                    # Your mobile browser fetches the image directly.
-                    img_html = f'''
-                    <div style="margin: 15px 0;">
-                        <img src="{url}" referrerpolicy="no-referrer" 
-                             style="width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" 
-                             onerror="this.onerror=null; this.src='https://placehold.co/800x400/1e3a5f/FFFFFF/png?text=Image+Blocked+by+Safety+Filter';">
-                    </div>
-                    '''
-                    st.markdown(img_html, unsafe_allow_html=True)
-
     # Render History
     for msg in st.session_state.aya_messages:
         with st.chat_message(msg["role"]):
-            if msg["role"] == "assistant":
-                render_chat_content(msg["content"])
-            else:
-                st.markdown(msg["content"])
+            st.markdown(msg["content"])
 
     # Process New AI Message
     if st.session_state.aya_messages and st.session_state.aya_messages[-1]["role"] == "user":
         with st.chat_message("assistant"):
-            with st.spinner("🤖 AyA is analyzing and drawing..."):
+            with st.spinner("🤖 AyA is analyzing..."):
                 try:
                     msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.aya_messages
                     
@@ -373,13 +323,60 @@ elif st.session_state.page == "AyA_AI":
                         temperature=0.5
                     )
                     
-                    response_text = chat_completion.choices[0].message.content or ""
+                    raw_response = chat_completion.choices[0].message.content or ""
                     
-                    # Render it safely
-                    render_chat_content(response_text)
+                    ai_explanation = raw_response
+                    img_query = None
                     
-                    # Save to history
-                    st.session_state.aya_messages.append({"role": "assistant", "content": response_text})
+                    # Cleanly extract the JSON
+                    try:
+                        json_match = re.search(r'\{[\s\S]*\}', raw_response)
+                        if json_match:
+                            parsed_data = json.loads(json_match.group())
+                            ai_explanation = parsed_data.get("explanation", raw_response)
+                            img_query = parsed_data.get("image_query", None)
+                    except Exception:
+                        ai_explanation = raw_response
+                    
+                    # Print Text
+                    st.markdown(ai_explanation)
+                    
+                    # --- 🚨 HEAVY DUTY IMAGE FETCHER 🚨 ---
+                    if img_query and str(img_query).lower() not in ['null', 'none', '']:
+                        safe_query = urllib.parse.quote(str(img_query).strip()[:100])
+                        url = f"https://image.pollinations.ai/prompt/{safe_query}?width=800&height=400"
+                        
+                        with st.spinner(f"🎨 Generating visual for '{img_query}'..."):
+                            # We mimic a real Google Chrome browser so Cloudflare doesn't block the request
+                            headers = {
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                                "Accept": "image/webp,image/apng,image/*,*/*;q=0.8"
+                            }
+                            
+                            img_bytes = None
+                            
+                            # We retry 3 times in case the free server is temporarily overloaded
+                            for attempt in range(3):
+                                try:
+                                    # 30 second timeout prevents the app from hanging forever
+                                    res = requests.get(url, headers=headers, timeout=30)
+                                    
+                                    # If status is 200 AND file size is larger than 5KB (proving it's not a blocked HTML page)
+                                    if res.status_code == 200 and len(res.content) > 5000:
+                                        img_bytes = res.content
+                                        break
+                                except:
+                                    time.sleep(1) # wait 1 second before retrying
+                            
+                            # Render Results Safely
+                            if img_bytes:
+                                st.image(img_bytes, caption=f"AyA Visual: {img_query}", use_container_width=True)
+                            else:
+                                # This is the Graceful Fallback. It prevents the broken '0' icon from ever appearing.
+                                st.error("⚠️ **Visual Blocked:** The external image server blocked this request, likely due to automated NSFW filters flagging anatomical terminology, or server timeout. Please rely on the text explanation above.")
+
+                    # Save only text to history
+                    st.session_state.aya_messages.append({"role": "assistant", "content": ai_explanation})
 
                 except Exception as e:
                     st.error(f"⚠️ Groq API Error: {str(e)}")
@@ -780,46 +777,21 @@ elif st.session_state.page == "Contact":
                 if name and phone and msg:
                     subject = f"Tuition Inquiry from {name}"
                     body = f"Name: {name}\nPhone: {phone}\nGrade: {grade}\n\nMessage:\n{msg}"
-                    
                     safe_subject = urllib.parse.quote(subject)
                     safe_body = urllib.parse.quote(body)
-                    
                     mailto_link = f"mailto:the.molecularmanexpert@gmail.com?subject={safe_subject}&body={safe_body}"
                     
                     st.markdown(f"""
                     <a href="{mailto_link}" target="_blank" style="text-decoration: none;">
-                        <div style="
-                            width: 100%;
-                            background: linear-gradient(90deg, #1e3a5f, #3b6b9e);
-                            color: white;
-                            text-align: center;
-                            padding: 12px;
-                            border-radius: 25px;
-                            font-weight: bold;
-                            border: 1px solid white;
-                            margin-top: 10px;
-                            cursor: pointer;
-                        ">
+                        <div style="width: 100%; background: linear-gradient(90deg, #1e3a5f, #3b6b9e); color: white; text-align: center; padding: 12px; border-radius: 25px; font-weight: bold; border: 1px solid white; margin-top: 10px; cursor: pointer;">
                             🚀 Click to Send Email
                         </div>
                     </a>
-                    <div style="text-align:center; font-size:12px; color:#aaa; margin-top:5px;">
-                        (Opens your default email app)
-                    </div>
+                    <div style="text-align:center; font-size:12px; color:#aaa; margin-top:5px;">(Opens your default email app)</div>
                     """, unsafe_allow_html=True)
                 else:
                     st.markdown("""
-                    <div style="
-                        width: 100%;
-                        background: #444;
-                        color: #888;
-                        text-align: center;
-                        padding: 12px;
-                        border-radius: 25px;
-                        font-weight: bold;
-                        border: 1px solid #555;
-                        margin-top: 10px;
-                    ">
+                    <div style="width: 100%; background: #444; color: #888; text-align: center; padding: 12px; border-radius: 25px; font-weight: bold; border: 1px solid #555; margin-top: 10px;">
                         Fill details to enable Send
                     </div>
                     """, unsafe_allow_html=True)
@@ -832,36 +804,10 @@ st.write("")
 with st.container(border=True):
     st.markdown("""
         <style>
-        @keyframes gradient-animation {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-        
-        .animated-footer-text {
-            font-weight: 800;
-            font-size: 24px;
-            text-transform: uppercase;
-            text-align: center;
-            letter-spacing: 2px;
-            background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000);
-            background-size: 300%;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent; 
-            background-clip: text;
-            color: transparent;
-            animation: gradient-animation 10s ease infinite;
-        }
+        @keyframes gradient-animation { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+        .animated-footer-text { font-weight: 800; font-size: 24px; text-transform: uppercase; text-align: center; letter-spacing: 2px; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 300%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; color: transparent; animation: gradient-animation 10s ease infinite; }
         </style>
-        
-        <div class="animated-footer-text">
-            PRECISE • PASSIONATE • PROFESSIONAL
-        </div>
+        <div class="animated-footer-text">PRECISE • PASSIONATE • PROFESSIONAL</div>
     """, unsafe_allow_html=True)
     
-    st.markdown(
-        "<div style='text-align: center; color: gray; font-size: 12px; margin-top: 10px;'>"
-        "© 2026 The Molecular Man Expert Tuition Solutions | Mohammed Salmaan M. All Rights Reserved."
-        "</div>", 
-        unsafe_allow_html=True
-    )
+    st.markdown("<div style='text-align: center; color: gray; font-size: 12px; margin-top: 10px;'>© 2026 The Molecular Man Expert Tuition Solutions | Mohammed Salmaan M. All Rights Reserved.</div>", unsafe_allow_html=True)
