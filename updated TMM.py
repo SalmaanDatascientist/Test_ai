@@ -10,6 +10,8 @@ from PIL import Image
 from groq import Groq
 from openai import OpenAI
 import PyPDF2
+import re
+import urllib.parse
 from streamlit_gsheets import GSheetsConnection
 
 # -----------------------------------------------------------------------------
@@ -559,8 +561,23 @@ if st.session_state.aya_messages and st.session_state.aya_messages[-1]["role"] =
                     max_tokens=6000,
                 )
                 response_text = chat_completion.choices[0].message.content
-                st.markdown(response_text)
-                st.session_state.aya_messages.append({"role": "assistant", "content": response_text})
+                
+                # --- BULLETPROOF IMAGE PARSER ---
+                def render_images(text):
+                    def replacer(match):
+                        prompt = match.group(1).strip()
+                        # Python perfectly encodes the spaces and special characters
+                        safe_prompt = urllib.parse.quote(prompt)
+                        return f"![{prompt}](https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true)"
+                    
+                    # Find anything inside <IMAGE> tags and replace it with the working URL
+                    return re.sub(r'<IMAGE>(.*?)</IMAGE>', replacer, text, flags=re.IGNORECASE | re.DOTALL)
+                
+                final_text = render_images(response_text)
+                # ---------------------------------
+                
+                st.markdown(final_text)
+                st.session_state.aya_messages.append({"role": "assistant", "content": final_text})
             except Exception as e:
                 st.error(f"Error generating response: {str(e)}")
 
@@ -1076,6 +1093,7 @@ with st.container(border=True):
         "</div>", 
         unsafe_allow_html=True
     )
+
 
 
 
