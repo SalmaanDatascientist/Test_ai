@@ -6,6 +6,7 @@ import datetime
 import uuid
 import requests
 import hashlib
+import random
 from PIL import Image
 from groq import Groq
 from openai import OpenAI
@@ -452,7 +453,7 @@ elif st.session_state.page == "AyA_AI":
     Example format exactly like this:
     [IMAGE: A simple 2D diagram of a glass slab showing lateral displacement of light]
     
-    NOTE: Keep descriptions under 100 characters. DO NOT use markdown links like ![alt](url). ONLY use the [IMAGE: description] tag.
+    NOTE: Keep descriptions under 100 characters. DO NOT use markdown links. DO NOT output URLs.
     """
 
     with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
@@ -482,44 +483,37 @@ elif st.session_state.page == "AyA_AI":
                     except Exception as e:
                         st.error(f"Error reading PDF: {e}")
 
-    # --- 🚨 THE FINAL, NATIVE MARKDOWN AUTO-CORRECTOR 🚨 ---
+    # --- 🚨 THE BRUTE-FORCE IMAGE PARSER 🚨 ---
     def render_chat_content(text):
         if not text: 
             return
             
-        # 1. AUTO-CORRECT: Catch the AI's broken markdown hallucinations (like your screenshots 1 & 2) 
-        # and aggressively convert them into our safe [IMAGE: ...] tag format.
+        # 1. Catch ALL the broken shit the AI makes up (like your screenshots 1 & 2)
+        # This rips out the text no matter what brackets it uses.
         text = re.sub(r'!\[([^\]]+)\](?:\([^\)]*\))?', r'[IMAGE: \1]', text)
         text = re.sub(r'\{IMAGE:\s*(.*?)\}', r'[IMAGE: \1]', text, flags=re.IGNORECASE)
         text = re.sub(r'\[\[IMAGE:\s*(.*?)\]\]', r'[IMAGE: \1]', text, flags=re.IGNORECASE)
         
-        # 2. Split the text by our safe tags
+        # 2. Split the text by our tags
         parts = re.split(r'\[IMAGE:\s*(.*?)\]', text, flags=re.IGNORECASE | re.DOTALL)
         
         for i, part in enumerate(parts):
             if i % 2 == 0:
-                # Normal Text
                 if part.strip():
                     st.markdown(part)
             else:
-                # Image Tag Captured
                 prompt = part.strip().replace('\n', ' ')
                 if prompt:
-                    short_prompt = prompt[:150]
-                    safe_prompt = urllib.parse.quote(short_prompt)
-                    
-                    # Generate a random seed so the browser forces a fresh image pull
-                    import random
+                    safe_prompt = urllib.parse.quote(prompt[:150])
                     seed = random.randint(1, 100000)
                     
-                    # 🚨 THE FIX: Let Streamlit render pure, native Markdown!
-                    # We do NOT use st.image (Streamlit proxy blocks). We do NOT use requests.get (Cloudflare blocks).
-                    # We just write native Markdown. Your phone/laptop downloads the image directly like a normal website.
+                    # 🚨 THIS IS WHAT I MESSED UP LAST TIME.
+                    # This is the actual image file endpoint. 
                     url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true&seed={seed}"
                     
-                    # Draw the caption and the image
-                    st.markdown(f"🎨 **AyA Visual:** *{short_prompt}*")
-                    st.markdown(f"![{short_prompt}]({url})")
+                    st.markdown(f"🎨 **AyA Visual:** *{prompt}*")
+                    # We pass the URL directly to the browser. Streamlit doesn't fetch it, your phone fetches it.
+                    st.markdown(f"![{prompt}]({url})")
 
     for msg in st.session_state.aya_messages:
         with st.chat_message(msg["role"]):
@@ -542,10 +536,8 @@ elif st.session_state.page == "AyA_AI":
                     
                     response_text = chat_completion.choices[0].message.content or ""
                     
-                    # Pass it to our native markdown parser
                     render_chat_content(response_text)
                     
-                    # Save it
                     st.session_state.aya_messages.append({"role": "assistant", "content": response_text})
                 except Exception as e:
                     st.error(f"⚠️ Groq API Error: {str(e)}")
