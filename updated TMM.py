@@ -100,14 +100,11 @@ def login_user(username, password):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(spreadsheet="https://docs.google.com/spreadsheets/d/18o58Ot15bBL2VA4uMib_HWJWgd112e2dKuil2YwojDk/edit?usp=sharing")
-        
         df.columns = df.columns.str.strip()
         df['username'] = df['username'].astype(str).str.strip()
         df['password'] = df['password'].astype(str).str.strip()
-        
         clean_username = username.strip()
         clean_password = password.strip()
-        
         user_row = df[df['username'] == clean_username]
         if not user_row.empty:
             stored_password = str(user_row.iloc[0]['password'])
@@ -153,22 +150,29 @@ st.markdown("""
     .stApp { background: linear-gradient(135deg, #004e92 0%, #000428 100%) !important; background-attachment: fixed; }
     .block-container { padding-top: 1rem !important; padding-bottom: 5rem !important; }
     h1, h2, h3, h4, h5, h6, p, div, span, li, label, .stMarkdown { color: #ffffff !important; }
-    
     div.stButton > button { background: linear-gradient(90deg, #1e3a5f, #3b6b9e, #1e3a5f); color: white !important; border-radius: 25px !important; border: 1px solid rgba(255,255,255,0.2) !important; }
     div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
     div[data-testid="stFormSubmitButton"] > button { background: #1e3a5f !important; color: #ffffff !important; border: 2px solid white !important; }
-    
     .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div { background-color: rgba(255, 255, 255, 0.1) !important; color: #ffffff !important; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3) !important; }
-    
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     .stDeployButton {display: none;}
+    
+    .hero-ad-box { background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(12px); border: 2px solid #ffd700; border-radius: 20px; padding: 40px 20px; margin: 30px 0; text-align: center; }
+    .hero-headline { font-size: 32px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; background: linear-gradient(to right, #ffffff, #ffd700); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 15px; }
+    .hero-subhead { font-size: 18px; color: #e0e0e0; margin-bottom: 25px; font-weight: 300; }
+    .hero-suite-title { font-size: 22px; color: #00ffff; font-weight: 800; text-transform: uppercase; margin-bottom: 20px; text-shadow: 0 0 10px rgba(0, 255, 255, 0.5); }
+    .hero-feature-grid { display: flex; justify-content: center; gap: 30px; margin-bottom: 30px; flex-wrap: wrap; }
+    .hero-feature-item { background: rgba(255, 255, 255, 0.05); padding: 15px 25px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); text-align: left; max-width: 400px; }
+    .hero-footer { font-size: 14px; font-weight: 800; color: #ff4d4d; letter-spacing: 1.5px; border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 15px; margin-top: 10px; }
     
     .founder-header-container { text-align: center; padding: 35px 20px; background: linear-gradient(135deg, rgba(0,0,0,0.4) 0%, rgba(0,0,0,0.2) 100%); backdrop-filter: blur(10px); border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.1); margin-bottom: 30px; }
     .founder-headline { font-size: 2.2rem; font-weight: 900; background: linear-gradient(to right, #ffffff 0%, #a1c4fd 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 15px; }
     .founder-subhead { font-size: 1.2rem; color: #e2e8f0; margin-bottom: 15px; }
     .founder-tagline { font-size: 1rem; color: #ffd700; font-weight: 800; text-transform: uppercase; letter-spacing: 2px; }
 
-    .white-card-fix { background-color: white !important; color: black !important; padding: 20px !important; border-radius: 10px !important; margin-bottom: 20px !important; }
+    .notif-card { background: rgba(255, 215, 0, 0.1); border-left: 4px solid #ffd700; padding: 15px; margin-bottom: 10px; border-radius: 5px; }
+    .live-button-container { text-align: center; margin-top: 20px; }
+    .white-card-fix { background-color: white !important; color: black !important; padding: 20px !important; border-radius: 10px !important; box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important; margin-bottom: 20px !important; }
     .white-card-fix *, .white-card-fix p, .white-card-fix span, .white-card-fix div, .white-card-fix h1, .white-card-fix h2, .white-card-fix h3 { color: #000000 !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -264,21 +268,19 @@ elif st.session_state.page == "AyA_AI":
         st.error("⚠️ GROQ_API_KEY not found in Secrets! Please check your .streamlit/secrets.toml file.")
         st.stop()
 
-    # 🚨 THE NEW JSON-STRICT PROMPT (BUILT TO EVADE CENSORSHIP)
+    # 🚨 THE STRICT JSON PROMPT
+    # Forces the AI to use an exact, machine-readable format so it can never break your app.
     SYSTEM_PROMPT = """You are **Aya**, the Lead AI Tutor at **The Molecular Man Expert Tuition Solutions**. 
     Your Mission: Guide students from "Zero" to "Hero".
 
-    CRITICAL INSTRUCTION - JSON OUTPUT ONLY:
-    You MUST format your entire response as a single, valid JSON object. Do NOT output ANY markdown text outside of the JSON block.
-
-    Use this EXACT JSON format:
+    CRITICAL INSTRUCTION - YOU MUST RESPOND IN JSON FORMAT ONLY:
+    You are communicating with a strict backend system. Do not write any normal conversational text. You MUST output ONLY a raw JSON object.
+    
+    Format:
     {
-      "answer": "Your detailed educational explanation goes here. You can use standard markdown inside this string.",
-      "image_prompt": "If a visual is needed, write a highly detailed prompt for an AI image generator. If NO image is needed, set to null."
+      "explanation": "Your full, detailed educational response to the student goes here. You can use markdown and emojis inside this string.",
+      "image_prompt": "If a visual is needed, write a very short, highly descriptive image prompt (under 20 words). If no image is needed, write null."
     }
-
-    ANTI-CENSORSHIP RULE FOR BIOLOGY/ANATOMY:
-    The external image generator has strict NSFW filters. If the student asks for human anatomy (like reproductive systems or breasts), you MUST use highly sterile, scientific descriptions in the image_prompt (e.g., "clinical medical cross-section diagram of female mammary glands, highly educational") to avoid being blocked.
     """
 
     with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
@@ -308,15 +310,13 @@ elif st.session_state.page == "AyA_AI":
                     except Exception as e:
                         st.error(f"Error reading PDF: {e}")
 
-    # Render History
     for msg in st.session_state.aya_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Process New AI Message
     if st.session_state.aya_messages and st.session_state.aya_messages[-1]["role"] == "user":
         with st.chat_message("assistant"):
-            with st.spinner("🤖 AyA is analyzing and drawing..."):
+            with st.spinner("🤖 AyA is analyzing..."):
                 try:
                     msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.aya_messages
                     
@@ -326,50 +326,54 @@ elif st.session_state.page == "AyA_AI":
                         temperature=0.5
                     )
                     
-                    response_text = chat_completion.choices[0].message.content or ""
+                    raw_response = chat_completion.choices[0].message.content or ""
                     
-                    # --- 🚨 BULLETPROOF JSON PARSER & SECURE BACKEND FETCHER 🚨 ---
-                    ai_text = response_text
+                    ai_explanation = raw_response
                     img_prompt = None
                     
+                    # 🚨 THE SAFEST PARSER POSSIBLE
+                    # Extracts the JSON cleanly. If the AI messes up, it degrades gracefully.
                     try:
-                        json_match = re.search(r'\{[\s\S]*\}', response_text)
+                        json_match = re.search(r'\{.*\}', raw_response, re.DOTALL)
                         if json_match:
-                            parsed_data = json.loads(json_match.group())
-                            ai_text = parsed_data.get("answer", response_text)
+                            parsed_data = json.loads(json_match.group(0))
+                            ai_explanation = parsed_data.get("explanation", raw_response)
                             img_prompt = parsed_data.get("image_prompt", None)
                     except Exception:
-                        ai_text = response_text
+                        ai_explanation = raw_response
                     
-                    # 1. Print Text
-                    st.markdown(ai_text)
+                    # 1. Print the text explanation
+                    st.markdown(ai_explanation)
                     
-                    # 2. Fetch and Render Image Backend
-                    if img_prompt and str(img_prompt).strip() != "" and str(img_prompt).lower() != "null":
+                    # 2. Handle the Image Generation with Graceful Failures
+                    if img_prompt and str(img_prompt).lower() not in ['null', 'none', '']:
                         safe_prompt = urllib.parse.quote(str(img_prompt).strip())
-                        url = f"https://pollinations.ai/p/{safe_prompt}?width=800&height=400"
+                        seed = uuid.uuid4().hex[:8]
                         
-                        with st.spinner("Fetching secure image..."):
-                            try:
-                                # We spoof a real browser to bypass Cloudflare bot protections
-                                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-                                res = requests.get(url, headers=headers, timeout=15)
-                                
-                                if res.status_code == 200:
-                                    # We serve the raw image data directly. No broken HTML tags, no 0 icons.
-                                    st.image(res.content, caption=f"AyA Visual: {img_prompt}", use_container_width=True)
-                                elif res.status_code == 403 or res.status_code == 530:
-                                    st.warning("⚠️ **Image Blocked:** The external AI image server blocked this request because its automated safety filters flagged the anatomical/medical terminology. Please try rephrasing with strictly generic terms.")
-                                else:
-                                    st.error(f"⚠️ Image server unavailable (Error {res.status_code}).")
-                            except Exception:
-                                st.error("⚠️ Image request timed out.")
+                        # Use standard model, no complex queries, letting the browser fetch it
+                        url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true&seed={seed}"
+                        
+                        # This HTML block displays the image. 
+                        # IF the external server blocks the request (e.g. NSFW filter on anatomy), 
+                        # the "onerror" script hides the broken icon and shows a professional warning message instead.
+                        html_code = f"""
+                        <div style="margin-top: 15px; border-radius: 10px; overflow: hidden; border: 1px solid #444; background: rgba(0,0,0,0.2);">
+                            <img src="{url}" alt="{img_prompt}" style="width: 100%; display: block;" 
+                                 onerror="this.style.display='none'; document.getElementById('fb-{seed}').style.display='block';">
+                            <div id="fb-{seed}" style="display: none; background-color: rgba(255,0,0,0.1); color: #ff8888; padding: 20px; text-align: center; font-family: sans-serif;">
+                                <h4 style="color:#ff4444; margin-top:0;">⚠️ Visual Blocked by External Server</h4>
+                                <p style="font-size: 14px; margin-bottom: 0;">The external AI image server blocked this request. This usually happens when automated safety filters flag anatomical, biological, or medical terminology.</p>
+                            </div>
+                        </div>
+                        <p style="color: #aaa; font-size: 12px; font-style: italic; text-align: center; margin-top: 5px;">AyA Visual Generator</p>
+                        """
+                        st.markdown(html_code, unsafe_allow_html=True)
 
-                    # 3. Save only text to history
-                    st.session_state.aya_messages.append({"role": "assistant", "content": ai_text})
+                    # 3. Save ONLY the text to the chat history
+                    st.session_state.aya_messages.append({"role": "assistant", "content": ai_explanation})
 
                 except Exception as e:
-                    st.error(f"⚠️ API Error: {str(e)}")
+                    st.error(f"⚠️ Groq API Error: {str(e)}")
 
     if st.session_state.aya_messages:
         if user_input := st.chat_input("Ask a follow-up..."):
@@ -764,46 +768,21 @@ elif st.session_state.page == "Contact":
                 if name and phone and msg:
                     subject = f"Tuition Inquiry from {name}"
                     body = f"Name: {name}\nPhone: {phone}\nGrade: {grade}\n\nMessage:\n{msg}"
-                    
                     safe_subject = urllib.parse.quote(subject)
                     safe_body = urllib.parse.quote(body)
-                    
                     mailto_link = f"mailto:the.molecularmanexpert@gmail.com?subject={safe_subject}&body={safe_body}"
                     
                     st.markdown(f"""
                     <a href="{mailto_link}" target="_blank" style="text-decoration: none;">
-                        <div style="
-                            width: 100%;
-                            background: linear-gradient(90deg, #1e3a5f, #3b6b9e);
-                            color: white;
-                            text-align: center;
-                            padding: 12px;
-                            border-radius: 25px;
-                            font-weight: bold;
-                            border: 1px solid white;
-                            margin-top: 10px;
-                            cursor: pointer;
-                        ">
+                        <div style="width: 100%; background: linear-gradient(90deg, #1e3a5f, #3b6b9e); color: white; text-align: center; padding: 12px; border-radius: 25px; font-weight: bold; border: 1px solid white; margin-top: 10px; cursor: pointer;">
                             🚀 Click to Send Email
                         </div>
                     </a>
-                    <div style="text-align:center; font-size:12px; color:#aaa; margin-top:5px;">
-                        (Opens your default email app)
-                    </div>
+                    <div style="text-align:center; font-size:12px; color:#aaa; margin-top:5px;">(Opens your default email app)</div>
                     """, unsafe_allow_html=True)
                 else:
                     st.markdown("""
-                    <div style="
-                        width: 100%;
-                        background: #444;
-                        color: #888;
-                        text-align: center;
-                        padding: 12px;
-                        border-radius: 25px;
-                        font-weight: bold;
-                        border: 1px solid #555;
-                        margin-top: 10px;
-                    ">
+                    <div style="width: 100%; background: #444; color: #888; text-align: center; padding: 12px; border-radius: 25px; font-weight: bold; border: 1px solid #555; margin-top: 10px;">
                         Fill details to enable Send
                     </div>
                     """, unsafe_allow_html=True)
@@ -816,36 +795,10 @@ st.write("")
 with st.container(border=True):
     st.markdown("""
         <style>
-        @keyframes gradient-animation {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
-        
-        .animated-footer-text {
-            font-weight: 800;
-            font-size: 24px;
-            text-transform: uppercase;
-            text-align: center;
-            letter-spacing: 2px;
-            background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000);
-            background-size: 300%;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent; 
-            background-clip: text;
-            color: transparent;
-            animation: gradient-animation 10s ease infinite;
-        }
+        @keyframes gradient-animation { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+        .animated-footer-text { font-weight: 800; font-size: 24px; text-transform: uppercase; text-align: center; letter-spacing: 2px; background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000); background-size: 300%; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; color: transparent; animation: gradient-animation 10s ease infinite; }
         </style>
-        
-        <div class="animated-footer-text">
-            PRECISE • PASSIONATE • PROFESSIONAL
-        </div>
+        <div class="animated-footer-text">PRECISE • PASSIONATE • PROFESSIONAL</div>
     """, unsafe_allow_html=True)
     
-    st.markdown(
-        "<div style='text-align: center; color: gray; font-size: 12px; margin-top: 10px;'>"
-        "© 2026 The Molecular Man Expert Tuition Solutions | Mohammed Salmaan M. All Rights Reserved."
-        "</div>", 
-        unsafe_allow_html=True
-    )
+    st.markdown("<div style='text-align: center; color: gray; font-size: 12px; margin-top: 10px;'>© 2026 The Molecular Man Expert Tuition Solutions | Mohammed Salmaan M. All Rights Reserved.</div>", unsafe_allow_html=True)
