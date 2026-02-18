@@ -447,12 +447,12 @@ elif st.session_state.page == "AyA_AI":
     Tone: Encouraging, clear, patient, and intellectually rigorous.
 
     CRITICAL INSTRUCTION FOR IMAGES: 
-    If a student asks for a visual or diagram, output a short description inside curly brackets starting with "IMAGE:".
+    If a student asks for a visual or diagram, output a short description inside square brackets starting with "IMAGE:".
     
     Example format exactly like this:
-    {IMAGE: A simple 2D diagram of a glass slab showing lateral displacement of light}
+    [IMAGE: A simple 2D diagram of a glass slab showing lateral displacement of light]
     
-    NOTE: Keep descriptions under 100 characters. DO NOT use markdown links. DO NOT use square brackets. ONLY use {IMAGE: description}.
+    NOTE: Keep descriptions under 100 characters. DO NOT use markdown links like ![alt](url). ONLY use the [IMAGE: description] tag.
     """
 
     with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
@@ -482,18 +482,19 @@ elif st.session_state.page == "AyA_AI":
                     except Exception as e:
                         st.error(f"Error reading PDF: {e}")
 
-    # --- 🚨 THE NEW, BULLETPROOF AUTO-CORRECTING PARSER 🚨 ---
+    # --- 🚨 THE FINAL, NATIVE MARKDOWN AUTO-CORRECTOR 🚨 ---
     def render_chat_content(text):
         if not text: 
             return
             
-        # 1. AUTO-CORRECT: Catch any broken Markdown the AI accidentally creates 
-        # and aggressively convert it into our safe {IMAGE: ...} tag format.
-        text = re.sub(r'!\[([^\]]+)\](?:\([^\)]*\))?', r'{IMAGE: \1}', text)
-        text = re.sub(r'\[IMAGE:\s*(.*?)\]', r'{IMAGE: \1}', text, flags=re.IGNORECASE)
+        # 1. AUTO-CORRECT: Catch the AI's broken markdown hallucinations (like your screenshots 1 & 2) 
+        # and aggressively convert them into our safe [IMAGE: ...] tag format.
+        text = re.sub(r'!\[([^\]]+)\](?:\([^\)]*\))?', r'[IMAGE: \1]', text)
+        text = re.sub(r'\{IMAGE:\s*(.*?)\}', r'[IMAGE: \1]', text, flags=re.IGNORECASE)
+        text = re.sub(r'\[\[IMAGE:\s*(.*?)\]\]', r'[IMAGE: \1]', text, flags=re.IGNORECASE)
         
         # 2. Split the text by our safe tags
-        parts = re.split(r'\{IMAGE:\s*(.*?)\}', text, flags=re.IGNORECASE | re.DOTALL)
+        parts = re.split(r'\[IMAGE:\s*(.*?)\]', text, flags=re.IGNORECASE | re.DOTALL)
         
         for i, part in enumerate(parts):
             if i % 2 == 0:
@@ -507,26 +508,18 @@ elif st.session_state.page == "AyA_AI":
                     short_prompt = prompt[:150]
                     safe_prompt = urllib.parse.quote(short_prompt)
                     
-                    seed = str(uuid.uuid4())[:6]
+                    # Generate a random seed so the browser forces a fresh image pull
+                    import random
+                    seed = random.randint(1, 100000)
                     
-                    # The OFFICIAL, STABLE image endpoint (the old one was timing out)
-                    url = f"https://pollinations.ai/p/{safe_prompt}?width=800&height=400&seed={seed}"
+                    # 🚨 THE FIX: Let Streamlit render pure, native Markdown!
+                    # We do NOT use st.image (Streamlit proxy blocks). We do NOT use requests.get (Cloudflare blocks).
+                    # We just write native Markdown. Your phone/laptop downloads the image directly like a normal website.
+                    url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true&seed={seed}"
                     
-                    # A backup image just in case the server times out or blocks the prompt
-                    fallback_url = "https://placehold.co/800x400/1e3a5f/FFFFFF/png?text=Diagram+Currently+Unavailable"
-                    
-                    # Draw a neat caption
+                    # Draw the caption and the image
                     st.markdown(f"🎨 **AyA Visual:** *{short_prompt}*")
-                    
-                    # 🚨 THE FIX: Direct HTML Injection with a built-in Fallback!
-                    # This forces the browser to load it natively. 
-                    # If it gets blocked, it gracefully switches to the "Unavailable" image instead of a broken 0 icon!
-                    img_html = f'''
-                    <img src="{url}" alt="{short_prompt}" 
-                    style="width: 100%; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); margin-bottom: 15px;" 
-                    onerror="this.onerror=null; this.src='{fallback_url}';">
-                    '''
-                    st.markdown(img_html, unsafe_allow_html=True)
+                    st.markdown(f"![{short_prompt}]({url})")
 
     for msg in st.session_state.aya_messages:
         with st.chat_message(msg["role"]):
@@ -549,7 +542,7 @@ elif st.session_state.page == "AyA_AI":
                     
                     response_text = chat_completion.choices[0].message.content or ""
                     
-                    # Pass it to our auto-correcting parser
+                    # Pass it to our native markdown parser
                     render_chat_content(response_text)
                     
                     # Save it
