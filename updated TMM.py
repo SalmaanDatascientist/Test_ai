@@ -13,7 +13,6 @@ import PyPDF2
 import re
 import urllib.parse
 from streamlit_gsheets import GSheetsConnection
-import streamlit.components.v1 as components # 🚨 ADDED FOR IFRAME INJECTION
 
 # -----------------------------------------------------------------------------
 # 1. PAGE CONFIGURATION
@@ -448,12 +447,12 @@ elif st.session_state.page == "AyA_AI":
     Tone: Encouraging, clear, patient, and intellectually rigorous.
 
     CRITICAL INSTRUCTION FOR IMAGES: 
-    If a student asks for a visual or diagram, output a short description inside square brackets starting with "IMAGE:".
+    If a student asks for a visual or diagram, output a short description inside curly brackets starting with "IMAGE:".
     
     Example format exactly like this:
-    [IMAGE: A simple 2D diagram of a glass slab showing lateral displacement of light]
+    {IMAGE: A simple 2D diagram of a glass slab showing lateral displacement of light}
     
-    NOTE: Use highly academic, clinical, and safe terminology to prevent the image from being blocked by safety filters. Keep descriptions under 100 characters. DO NOT use markdown links.
+    NOTE: Keep descriptions under 100 characters. DO NOT use markdown links. DO NOT use square brackets. ONLY use {IMAGE: description}.
     """
 
     with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
@@ -483,17 +482,18 @@ elif st.session_state.page == "AyA_AI":
                     except Exception as e:
                         st.error(f"Error reading PDF: {e}")
 
-    # --- 🚨 THE ISOLATED IFRAME PARSER (CLOUDFLARE BYPASS) 🚨 ---
+    # --- 🚨 THE NEW, BULLETPROOF AUTO-CORRECTING PARSER 🚨 ---
     def render_chat_content(text):
         if not text: 
             return
             
-        # Catch any broken markdown the AI accidentally creates
-        text = re.sub(r'!\[([^\]]+)\](?:\([^\)]+\))?', r'[IMAGE: \1]', text)
-        text = re.sub(r'\[\[IMAGE:\s*(.*?)\]\]', r'[IMAGE: \1]', text, flags=re.IGNORECASE)
+        # 1. AUTO-CORRECT: Catch any broken Markdown the AI accidentally creates 
+        # and aggressively convert it into our safe {IMAGE: ...} tag format.
+        text = re.sub(r'!\[([^\]]+)\](?:\([^\)]*\))?', r'{IMAGE: \1}', text)
+        text = re.sub(r'\[IMAGE:\s*(.*?)\]', r'{IMAGE: \1}', text, flags=re.IGNORECASE)
         
-        # Split the text by our safe tags
-        parts = re.split(r'\[IMAGE:\s*(.*?)\]', text, flags=re.IGNORECASE | re.DOTALL)
+        # 2. Split the text by our safe tags
+        parts = re.split(r'\{IMAGE:\s*(.*?)\}', text, flags=re.IGNORECASE | re.DOTALL)
         
         for i, part in enumerate(parts):
             if i % 2 == 0:
@@ -507,59 +507,26 @@ elif st.session_state.page == "AyA_AI":
                     short_prompt = prompt[:150]
                     safe_prompt = urllib.parse.quote(short_prompt)
                     
-                    # Generate a random seed so the browser doesn't cache broken images
                     seed = str(uuid.uuid4())[:6]
-                    url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true&seed={seed}"
                     
-                    # 🚨 THE FIX: st.components.v1.html creates an isolated iframe.
-                    # Streamlit's security sanitizer CANNOT touch this code.
-                    # <meta name="referrer" content="no-referrer"> hides your app URL from Cloudflare, so it thinks the student is just a normal browser user.
-                    html_code = f"""
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                    <meta name="referrer" content="no-referrer">
-                    <style>
-                        body {{ 
-                            margin: 0; 
-                            display: flex; 
-                            flex-direction: column; 
-                            align-items: center; 
-                            font-family: sans-serif; 
-                            background: transparent; 
-                            color: white;
-                        }}
-                        img {{ 
-                            max-width: 100%; 
-                            border-radius: 8px; 
-                            box-shadow: 0 4px 8px rgba(0,0,0,0.5); 
-                        }}
-                        .caption {{ 
-                            color: #aaa; 
-                            font-size: 13px; 
-                            margin-top: 8px; 
-                            font-style: italic; 
-                            text-align: center; 
-                        }}
-                        .error {{ 
-                            display: none; 
-                            color: #ff8888; 
-                            padding: 15px; 
-                            border: 1px dashed #ff4444; 
-                            border-radius: 8px; 
-                            background: rgba(255,0,0,0.1); 
-                        }}
-                    </style>
-                    </head>
-                    <body>
-                        <img src="{url}" alt="{short_prompt}" onerror="this.style.display='none'; document.getElementById('err').style.display='block';">
-                        <div id="err" class="error">⚠️ Diagram blocked by external server filters. Try a more clinical description.</div>
-                        <div class="caption">AyA Visual: {short_prompt}</div>
-                    </body>
-                    </html>
-                    """
-                    # Render the iframe directly in the chat!
-                    components.html(html_code, height=450)
+                    # The OFFICIAL, STABLE image endpoint (the old one was timing out)
+                    url = f"https://pollinations.ai/p/{safe_prompt}?width=800&height=400&seed={seed}"
+                    
+                    # A backup image just in case the server times out or blocks the prompt
+                    fallback_url = "https://placehold.co/800x400/1e3a5f/FFFFFF/png?text=Diagram+Currently+Unavailable"
+                    
+                    # Draw a neat caption
+                    st.markdown(f"🎨 **AyA Visual:** *{short_prompt}*")
+                    
+                    # 🚨 THE FIX: Direct HTML Injection with a built-in Fallback!
+                    # This forces the browser to load it natively. 
+                    # If it gets blocked, it gracefully switches to the "Unavailable" image instead of a broken 0 icon!
+                    img_html = f'''
+                    <img src="{url}" alt="{short_prompt}" 
+                    style="width: 100%; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.5); margin-bottom: 15px;" 
+                    onerror="this.onerror=null; this.src='{fallback_url}';">
+                    '''
+                    st.markdown(img_html, unsafe_allow_html=True)
 
     for msg in st.session_state.aya_messages:
         with st.chat_message(msg["role"]):
@@ -582,7 +549,7 @@ elif st.session_state.page == "AyA_AI":
                     
                     response_text = chat_completion.choices[0].message.content or ""
                     
-                    # Pass it to our unblockable HTML iframe parser
+                    # Pass it to our auto-correcting parser
                     render_chat_content(response_text)
                     
                     # Save it
