@@ -14,13 +14,6 @@ import re
 import urllib.parse
 from streamlit_gsheets import GSheetsConnection
 
-# 🚨 IMPORT THE NEW WEB SEARCH ENGINE
-try:
-    from duckduckgo_search import DDGS
-    HAS_DDGS = True
-except ImportError:
-    HAS_DDGS = False
-
 # -----------------------------------------------------------------------------
 # 1. PAGE CONFIGURATION
 # -----------------------------------------------------------------------------
@@ -45,22 +38,18 @@ if 'page' not in st.session_state:
 if "username" not in st.session_state:
     st.session_state.username = "Student"
 
-# Auth State for Live Class
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 
-# AI Tutor State
 if "aya_messages" not in st.session_state:
     st.session_state.aya_messages = []
 
-# Mock Test State
 if 'mt_questions' not in st.session_state: st.session_state.mt_questions = None
 if 'mt_answers' not in st.session_state: st.session_state.mt_answers = {}
 if 'mt_feedback' not in st.session_state: st.session_state.mt_feedback = None
 
-# Files
 NOTIFICATIONS_FILE = "notifications.json"
 LIVE_STATUS_FILE = "live_status.json"
 
@@ -74,7 +63,7 @@ def init_files():
 init_files()
 
 # -----------------------------------------------------------------------------
-# 3. HELPER FUNCTIONS
+# 3. HELPER FUNCTIONS & COMMONS API
 # -----------------------------------------------------------------------------
 def get_image_path(filename_base):
     extensions = [".png", ".jpg", ".jpeg", ".webp", ".gif"]
@@ -99,7 +88,59 @@ def render_image(filename, caption=None, width=None, use_column_width=False):
     except:
         return False
 
-# Auth Helpers
+# 🚨 THE NEW UNBLOCKABLE WIKIMEDIA COMMONS ENGINE 🚨
+# This searches specifically for scientific diagram files, bypassing all bot-blocks and NSFW filters.
+@st.cache_data(ttl=3600, show_spinner=False)
+def fetch_commons_diagram(query):
+    base_url = "https://commons.wikimedia.org/w/api.php"
+    
+    # Force the search engine to look for diagrams/schematics in the File namespace
+    search_params = {
+        "action": "query",
+        "format": "json",
+        "list": "search",
+        "srnamespace": 6, # Code 6 restricts search strictly to Image Files
+        "srsearch": f"{query} diagram OR schematic",
+        "srlimit": 1
+    }
+    
+    try:
+        headers = {"User-Agent": "MolecularManTutor/1.0 (Educational API)"}
+        res = requests.get(base_url, params=search_params, headers=headers, timeout=10).json()
+        search_results = res.get('query', {}).get('search', [])
+        
+        # Fallback: if no specific diagram is found, broaden the search
+        if not search_results:
+            search_params["srsearch"] = query
+            res = requests.get(base_url, params=search_params, headers=headers, timeout=10).json()
+            search_results = res.get('query', {}).get('search', [])
+
+        if search_results:
+            title = search_results[0]['title']
+            
+            # Fetch the actual high-res URL for the found file
+            img_params = {
+                "action": "query",
+                "format": "json",
+                "titles": title,
+                "prop": "imageinfo",
+                "iiprop": "url",
+                "iiurlwidth": 800
+            }
+            img_res = requests.get(base_url, params=img_params, headers=headers, timeout=10).json()
+            pages = img_res.get('query', {}).get('pages', {})
+            
+            for page_id in pages:
+                image_info = pages[page_id].get('imageinfo', [{}])[0]
+                # Try to get a web-friendly thumbnail first, fallback to original URL
+                img_url = image_info.get('thumburl') or image_info.get('url')
+                if img_url:
+                    clean_title = title.replace("File:", "").split(".")[0].replace("_", " ")
+                    return img_url, clean_title
+    except Exception:
+        return None, None
+    return None, None
+
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -122,7 +163,6 @@ def login_user(username, password):
         st.error(f"Login Error: {e}")
         return False
 
-# Data Helpers
 def get_notifications():
     try:
         with open(NOTIFICATIONS_FILE, "r") as f:
@@ -300,7 +340,7 @@ elif st.session_state.page == "AyA_AI":
     """, unsafe_allow_html=True)
 
     st.markdown("## 🧠 AyA - The Molecular Man AI")
-    st.caption("Your personal AI Tutor for Math, Science, Coding, and High-Fidelity Diagrams.")
+    st.caption("Your personal AI Tutor powered by the Verified Scientific Media Engine.")
 
     try:
         groq_api_key = st.secrets["GROQ_API_KEY"]
@@ -309,22 +349,17 @@ elif st.session_state.page == "AyA_AI":
         st.error("⚠️ GROQ_API_KEY not found in Secrets! Please check your .streamlit/secrets.toml file.")
         st.stop()
 
-    if not HAS_DDGS:
-        st.error("🚨 **CRITICAL ERROR:** You must add `duckduckgo-search` to your `requirements.txt` file for the new image engine to work.")
-        st.stop()
-
-    # 🚨 THE INDESTRUCTIBLE FORMATTING PROMPT 🚨
+    # 🚨 STRICT JSON PROMPT TO PREVENT ALL HALUCCINATIONS
     SYSTEM_PROMPT = """You are **Aya**, the Lead AI Tutor at **The Molecular Man Expert Tuition Solutions**. 
-    Your Mission: Guide students from "Zero" to "Hero".
 
-    CRITICAL INSTRUCTION - STRICT FORMATTING:
-    You MUST format your response using EXACTLY these two sections. Do not add any conversational filler before or after these labels.
-
-    ===EXPLANATION===
-    [Your detailed educational response goes here. Use markdown, emojis, clear formatting, and step-by-step logic.]
-
-    ===SEARCH_TERM===
-    [If a visual diagram is needed to help explain the concept, write a highly specific 3-to-6 word search query to find a real educational textbook diagram on the web (e.g., "lateral displacement glass slab diagram", "human reproductive system anatomy diagram"). If NO image is needed, write the exact word "NONE"]
+    CRITICAL INSTRUCTION - YOU MUST RESPOND IN EXACT JSON FORMAT ONLY.
+    DO NOT output any conversational text outside of the JSON block.
+    
+    Use this exact structure:
+    {
+      "explanation": "Your full, detailed educational response to the student's problem. Use markdown formatting and clear steps.",
+      "diagram_query": "If a scientific diagram is needed, write a highly specific 2-to-4 word search query to find it in an educational database (e.g. 'lateral displacement glass', 'female reproductive system', 'refraction prism'). If NO diagram is needed, write null."
+    }
     """
 
     with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
@@ -360,7 +395,7 @@ elif st.session_state.page == "AyA_AI":
 
     if st.session_state.aya_messages and st.session_state.aya_messages[-1]["role"] == "user":
         with st.chat_message("assistant"):
-            with st.spinner("🤖 AyA is analyzing..."):
+            with st.spinner("🤖 AyA is analyzing and fetching diagrams..."):
                 try:
                     msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.aya_messages
                     
@@ -370,57 +405,48 @@ elif st.session_state.page == "AyA_AI":
                         temperature=0.5
                     )
                     
-                    response_text = chat_completion.choices[0].message.content or ""
+                    raw_response = chat_completion.choices[0].message.content or ""
                     
-                    # --- 🚨 THE NEW LIVE WEB SEARCH ENGINE 🚨 ---
-                    if "===SEARCH_TERM===" in response_text:
-                        parts = response_text.split("===SEARCH_TERM===")
-                        ai_explanation = parts[0].replace("===EXPLANATION===", "").strip()
-                        search_term = parts[1].strip()
-                    else:
-                        ai_explanation = response_text.replace("===EXPLANATION===", "").strip()
-                        search_term = "NONE"
+                    ai_text = raw_response
+                    diagram_query = None
                     
-                    # 1. Print Text
-                    st.markdown(ai_explanation)
+                    # Safely extract the JSON to prevent format crashing
+                    try:
+                        json_match = re.search(r'\{[\s\S]*\}', raw_response)
+                        if json_match:
+                            data = json.loads(json_match.group())
+                            ai_text = data.get("explanation", raw_response)
+                            diagram_query = data.get("diagram_query", None)
+                    except Exception:
+                        pass
                     
-                    # 2. Fetch and Render Real Image from the Web
-                    if search_term and search_term.upper() != "NONE":
-                        with st.spinner(f"🔍 Searching the web for real diagram: '{search_term}'..."):
-                            try:
-                                # Fetch actual image from live web search
-                                results = DDGS().images(search_term, safesearch="moderate", max_results=1)
-                                
-                                if results:
-                                    img_url = results[0].get('image')
-                                    img_title = results[0].get('title', search_term)
-                                    
-                                    # Secure HTML Injection to prevent hotlinking blocks
-                                    html_code = f'''
-                                    <div style="margin: 20px 0; padding: 15px; border: 1px solid #444; border-radius: 10px; background: rgba(0,0,0,0.2);">
-                                        <p style="color: #00ffff; font-size: 14px; font-weight: bold; margin-bottom: 10px; text-transform: uppercase;">
-                                            🌐 Live Web Diagram
-                                        </p>
-                                        <img src="{img_url}" referrerpolicy="no-referrer" 
-                                             style="width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" 
-                                             onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                                        <div style="display: none; padding: 15px; background: rgba(255,0,0,0.1); color: #ff8888; border-radius: 8px; text-align: center;">
-                                            ⚠️ <strong>Image Blocked:</strong> The source website prevented the image from displaying here. Please ask the question again to fetch a different image.
-                                        </div>
-                                        <p style="color: #aaa; font-size: 12px; font-style: italic; text-align: center; margin-top: 10px;">Source: {img_title[:60]}...</p>
-                                    </div>
-                                    '''
-                                    st.markdown(html_code, unsafe_allow_html=True)
-                                else:
-                                    st.info(f"No specific diagram found on the web for '{search_term}'.")
-                            except Exception as e:
-                                st.warning("⚠️ Web image search encountered an error.")
+                    # 1. Print the clean text explanation
+                    st.markdown(ai_text)
+                    
+                    # 2. Safely Fetch Verified Scientific Diagram
+                    if diagram_query and str(diagram_query).lower() not in ['null', 'none', '']:
+                        with st.spinner(f"📚 Searching Scientific Database for '{diagram_query}'..."):
+                            img_url, wiki_title = fetch_commons_diagram(str(diagram_query))
+                            
+                            if img_url:
+                                html_code = f'''
+                                <div style="margin: 20px 0; padding: 15px; border: 1px solid #4B4B4B; border-radius: 10px; background: rgba(0,0,0,0.3);">
+                                    <p style="color: #48ff00; font-size: 14px; font-weight: bold; margin-bottom: 10px; text-transform: uppercase;">
+                                        ✅ Verified Scientific Diagram
+                                    </p>
+                                    <img src="{img_url}" style="width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+                                    <p style="color: #aaa; font-size: 12px; font-style: italic; text-align: center; margin-top: 10px; margin-bottom: 0;">Source: {wiki_title} (Wikimedia Commons)</p>
+                                </div>
+                                '''
+                                st.markdown(html_code, unsafe_allow_html=True)
+                            else:
+                                st.info(f"*(AyA looked for a verified textbook diagram of '{diagram_query}', but no exact match was found in the open database.)*")
 
-                    # 3. Save ONLY the text to history to keep the app clean
-                    st.session_state.aya_messages.append({"role": "assistant", "content": ai_explanation})
+                    # 3. Save ONLY the text to keep the chat history clean
+                    st.session_state.aya_messages.append({"role": "assistant", "content": ai_text})
 
                 except Exception as e:
-                    st.error(f"⚠️ Groq API Error: {str(e)}")
+                    st.error(f"⚠️ API Error: {str(e)}")
 
     if st.session_state.aya_messages:
         if user_input := st.chat_input("Ask a follow-up..."):
