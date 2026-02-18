@@ -447,13 +447,12 @@ elif st.session_state.page == "AyA_AI":
     Tone: Encouraging, clear, patient, and intellectually rigorous.
 
     CRITICAL INSTRUCTION FOR IMAGES: 
-    If a student asks for a visual, diagram, or illustration, you MUST output a simple text description wrapped in double brackets like this:
-    [[IMAGE: Detailed description of the diagram]]
+    If a student asks for a visual, diagram, or illustration, output a short description inside square brackets starting with "IMAGE:".
     
-    Example:
-    [[IMAGE: Highly detailed educational diagram showing lateral displacement of a light ray passing through a glass slab]]
+    Example format exactly like this:
+    [IMAGE: A simple 2D diagram of a glass slab showing lateral displacement of light]
     
-    DO NOT output standard markdown links like ![alt](url). ONLY use the [[IMAGE: ...]] format.
+    DO NOT use Markdown links. DO NOT output URLs. ONLY use the [IMAGE: description] format. Keep the description under 150 characters.
     """
 
     with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
@@ -483,13 +482,18 @@ elif st.session_state.page == "AyA_AI":
                     except Exception as e:
                         st.error(f"Error reading PDF: {e}")
 
-    # --- THE FOOLPROOF CHAT & IMAGE PARSER ---
+    # --- THE BACKEND FETCHING IMAGE PARSER ---
     def render_chat_content(text):
         if not text: 
             return
             
-        # Split the text by our new [[IMAGE: ...]] tags
-        parts = re.split(r'\[\[IMAGE:\s*(.*?)\]\]', text, flags=re.IGNORECASE | re.DOTALL)
+        # First, aggressively catch any stubborn markdown images the AI creates by accident
+        # and convert them to our tag format so we can process them safely.
+        text = re.sub(r'!\[([^\]]+)\]\([^\)]+\)', r'[IMAGE: \1]', text)
+        text = re.sub(r'\[\[IMAGE:\s*(.*?)\]\]', r'[IMAGE: \1]', text, flags=re.IGNORECASE)
+        
+        # Split the text by our safe [IMAGE: ...] tags
+        parts = re.split(r'\[IMAGE:\s*(.*?)\]', text, flags=re.IGNORECASE | re.DOTALL)
         
         for i, part in enumerate(parts):
             if i % 2 == 0:
@@ -500,12 +504,23 @@ elif st.session_state.page == "AyA_AI":
                 # Image Tag Captured
                 prompt = part.strip().replace('\n', ' ')
                 if prompt:
-                    safe_prompt = urllib.parse.quote(prompt)
-                    url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true"
-                    try:
-                        st.image(url, caption=f"AyA Visual: {prompt}", use_container_width=True)
-                    except Exception:
-                        st.warning("⚠️ Diagram could not be rendered.")
+                    # Truncate prompt so it doesn't break the server URL limits
+                    safe_prompt = urllib.parse.quote(prompt[:200])
+                    # Add a random seed so the browser doesn't cache broken images
+                    seed = str(uuid.uuid4())[:6]
+                    url = f"https://pollinations.ai/p/{safe_prompt}?width=800&height=400&nologo=true&seed={seed}"
+                    
+                    with st.spinner("🎨 AyA is drawing diagram..."):
+                        try:
+                            # 🚨 THE FIX: Python downloads the image behind the scenes!
+                            # This completely bypasses your browser's URL limits and CORS rules.
+                            response = requests.get(url, timeout=15)
+                            if response.status_code == 200:
+                                st.image(response.content, caption=f"AyA Visual: {prompt}", use_container_width=True)
+                            else:
+                                st.warning(f"⚠️ Diagram server returned error code {response.status_code}.")
+                        except Exception:
+                            st.warning("⚠️ Diagram generation timed out. Please try again.")
 
     for msg in st.session_state.aya_messages:
         with st.chat_message(msg["role"]):
@@ -516,27 +531,24 @@ elif st.session_state.page == "AyA_AI":
 
     if st.session_state.aya_messages and st.session_state.aya_messages[-1]["role"] == "user":
         with st.chat_message("assistant"):
-            with st.spinner("🤖 AyA is thinking and drawing..."):
+            with st.spinner("🤖 AyA is thinking..."):
                 try:
                     msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.aya_messages
                     
-                    # NOTE: Removed the max_tokens limit completely so Groq won't crash!
                     chat_completion = groq_client.chat.completions.create(
                         messages=msgs,
                         model="llama-3.3-70b-versatile",
                         temperature=0.5
                     )
                     
-                    # Ensure we have a string even if the API glitches
                     response_text = chat_completion.choices[0].message.content or ""
                     
-                    # Pass it to our safe parser
+                    # Pass it to our safe backend parser
                     render_chat_content(response_text)
                     
                     # Save it
                     st.session_state.aya_messages.append({"role": "assistant", "content": response_text})
                 except Exception as e:
-                    # If it breaks again, we will actually see why instead of just silence!
                     st.error(f"⚠️ Groq API Error: {str(e)}")
 
     if st.session_state.aya_messages:
