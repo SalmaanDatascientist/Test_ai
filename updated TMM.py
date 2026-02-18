@@ -275,6 +275,7 @@ st.markdown("""
         animation: fadeInUp 0.8s ease-out 0.6s forwards;
     }
 
+    /* Live Class Specifics */
     .notif-card {
         background: rgba(255, 215, 0, 0.1);
         border-left: 4px solid #ffd700;
@@ -356,6 +357,7 @@ st.divider()
 # PAGE: HOME
 # ==========================================
 if st.session_state.page == "Home":
+    
     logo_col1, logo_col2 = st.columns([1, 2])
     with logo_col1:
         with st.container(border=True):
@@ -483,18 +485,17 @@ elif st.session_state.page == "AyA_AI":
                     except Exception as e:
                         st.error(f"Error reading PDF: {e}")
 
-    # --- 🚨 THE BRUTE-FORCE IMAGE PARSER 🚨 ---
+    # --- 🚨 THE BULLETPROOF HTML/NO-REFERRER PARSER 🚨 ---
     def render_chat_content(text):
         if not text: 
             return
             
-        # 1. Catch ALL the broken shit the AI makes up (like your screenshots 1 & 2)
-        # This rips out the text no matter what brackets it uses.
+        # 1. AUTO-CORRECT: Catch the AI's broken markdown hallucinations
         text = re.sub(r'!\[([^\]]+)\](?:\([^\)]*\))?', r'[IMAGE: \1]', text)
         text = re.sub(r'\{IMAGE:\s*(.*?)\}', r'[IMAGE: \1]', text, flags=re.IGNORECASE)
         text = re.sub(r'\[\[IMAGE:\s*(.*?)\]\]', r'[IMAGE: \1]', text, flags=re.IGNORECASE)
         
-        # 2. Split the text by our tags
+        # 2. Split the text by our safe tags
         parts = re.split(r'\[IMAGE:\s*(.*?)\]', text, flags=re.IGNORECASE | re.DOTALL)
         
         for i, part in enumerate(parts):
@@ -504,16 +505,28 @@ elif st.session_state.page == "AyA_AI":
             else:
                 prompt = part.strip().replace('\n', ' ')
                 if prompt:
-                    safe_prompt = urllib.parse.quote(prompt[:150])
+                    short_prompt = prompt[:150]
+                    safe_prompt = urllib.parse.quote(short_prompt)
                     seed = random.randint(1, 100000)
                     
-                    # 🚨 THIS IS WHAT I MESSED UP LAST TIME.
-                    # This is the actual image file endpoint. 
-                    url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true&seed={seed}"
+                    url = f"https://pollinations.ai/p/{safe_prompt}?width=800&height=400&nologo=true&seed={seed}"
                     
-                    st.markdown(f"🎨 **AyA Visual:** *{prompt}*")
-                    # We pass the URL directly to the browser. Streamlit doesn't fetch it, your phone fetches it.
-                    st.markdown(f"![{prompt}]({url})")
+                    # This fallback image displays cleanly if the server drops the connection or hits a safety block
+                    fallback_url = "https://placehold.co/800x400/1e3a5f/FFFFFF/png?text=Diagram+Blocked+or+Unavailable"
+                    
+                    # 🚨 THE FIX: Raw HTML injection with no-referrer. 
+                    # The browser downloads it silently, preventing Cloudflare from seeing Streamlit. 
+                    # The onerror handles anatomy filters gracefully.
+                    img_html = f'''
+                    <div style="margin: 15px 0;">
+                        <p style="color: #aaa; font-size: 14px; font-style: italic; margin-bottom: 5px;">🎨 AyA Visual: {short_prompt}</p>
+                        <img src="{url}" alt="{short_prompt}" 
+                             referrerpolicy="no-referrer"
+                             style="width: 100%; max-width: 800px; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.5);" 
+                             onerror="this.onerror=null; this.src='{fallback_url}';">
+                    </div>
+                    '''
+                    st.markdown(img_html, unsafe_allow_html=True)
 
     for msg in st.session_state.aya_messages:
         with st.chat_message(msg["role"]):
