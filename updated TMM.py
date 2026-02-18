@@ -54,13 +54,11 @@ if 'mt_answers' not in st.session_state: st.session_state.mt_answers = {}
 if 'mt_feedback' not in st.session_state: st.session_state.mt_feedback = None
 
 # Files
-# Files
 NOTIFICATIONS_FILE = "notifications.json"
 LIVE_STATUS_FILE = "live_status.json"
 
 def init_files():
     if not os.path.exists(NOTIFICATIONS_FILE):
-# ... rest of the code ...
         with open(NOTIFICATIONS_FILE, "w") as f:
             json.dump([], f)
     if not os.path.exists(LIVE_STATUS_FILE):
@@ -95,7 +93,6 @@ def render_image(filename, caption=None, width=None, use_column_width=False):
         return False
 
 # Auth Helpers
-# Auth Helpers
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -128,7 +125,6 @@ def login_user(username, password):
     except Exception as e:
         st.error(f"Login Error: {e}")
         return False
-
 
 # Data Helpers
 def get_notifications():
@@ -306,7 +302,6 @@ st.markdown("""
     }
 
     /* --- CRITICAL FIX FOR TESTIMONIALS --- */
-    /* This forces black text inside white cards, overriding global white text */
     .white-card-fix {
         background-color: white !important;
         color: black !important;
@@ -315,7 +310,6 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
         margin-bottom: 20px !important;
     }
-    /* Target ALL children elements to ensure they are black */
     .white-card-fix *, .white-card-fix p, .white-card-fix span, .white-card-fix div, .white-card-fix h1, .white-card-fix h2, .white-card-fix h3 {
         color: #000000 !important;
     }
@@ -436,689 +430,95 @@ Stop paying for "premium" test series. The corporate coaching giants are scared.
 # ==========================================
 # PAGE: AyA AI TUTOR
 # ==========================================
-import streamlit as st
-from groq import Groq
-import PyPDF2
-
-# 1. Page Configuration
-st.set_page_config(
-    page_title="The Molecular Man | AyA AI",
-    page_icon="🧠",
-    layout="wide"
-)
-
-# 2. CSS FIX: This makes the input text visible (White)
-st.markdown("""
-<style>
-    /* Main background color fix (optional, ensures consistency) */
-    .stApp {
-        background-color: #0E1117;
-        color: white;
-    }
-
-    /* Fix text color in the main text area (Problem Input) */
-    .stTextArea textarea {
-        color: #ffffff !important;
-        background-color: #262730 !important;
-        border: 1px solid #4B4B4B;
-    }
-
-    /* Fix text color in the chat input (Follow-up questions) */
-    .stChatInput textarea {
-        color: #ffffff !important;
-        background-color: #262730 !important;
-    }
-    
-    /* Fix placeholder text color to be light grey */
-    ::placeholder {
-        color: #d3d3d3 !important;
-        opacity: 1;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# 3. Header
-st.markdown("## 🧠 AyA - The Molecular Man AI")
-st.caption("Your personal AI Tutor for Math, Science, and Coding.")
-
-# 4. Initialize Session State
-if "aya_messages" not in st.session_state:
-    st.session_state.aya_messages = []
-
-# 5. API Key Setup
-try:
-    # Ensure you have .streamlit/secrets.toml with GROQ_API_KEY = "your_key"
-    groq_api_key = st.secrets["GROQ_API_KEY"]
-    groq_client = Groq(api_key=groq_api_key)
-except Exception:
-    st.error("⚠️ GROQ_API_KEY not found in Secrets! Please check your .streamlit/secrets.toml file.")
-    st.stop()
-
-SYSTEM_PROMPT = """You are **Aya**, the Lead AI Tutor at **The Molecular Man Expert Tuition Solutions**. 
-Your Mission: Guide students from "Zero" to "Hero".
-Tone: Encouraging, clear, patient, and intellectually rigorous.
-Structure: 🧠 CONCEPT -> 🌍 CONTEXT -> ✍️ SOLUTION -> ✅ ANSWER -> 🚀 HERO TIP.
-
-CRITICAL INSTRUCTION FOR IMAGES: 
-Always get the most appropriate visual, a diagram, or if explaining a concept (like a chemical reaction, physics law, or biology cell) would benefit from an image, you MUST generate an image using this exact Markdown syntax:
-![Image Description](https://image.pollinations.ai/prompt/YOUR_DETAILED_PROMPT_HERE?width=800&height=400&nologo=true)
-
-Rules for the URL:
-1. Replace YOUR_DETAILED_PROMPT_HERE with a highly detailed description of the image.
-2. You MUST URL-encode the prompt (replace spaces with %20).
-3. Make the prompt descriptive (e.g., "Highly%20detailed%203D%20render%20of%20a%20water%20molecule%20showing%20oxygen%20and%20hydrogen%20bonds").
-
-Example Output:
-Here is a visual representation:
-![Water Molecule](https://image.pollinations.ai/prompt/Highly%20detailed%203D%20render%20of%20a%20water%20molecule?width=800&height=400&nologo=true)
-"""
-
-# 6. Input Section
-with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
-    input_type = st.radio("Input Method:", ["📄 Text Problem", "📕 Upload PDF"], horizontal=True)
-    
-    if input_type == "📄 Text Problem":
-        user_text = st.text_area("Paste question:", height=100)
-        if st.button("Ask AyA 🚀", use_container_width=True):
-            if user_text:
-                st.session_state.aya_messages = [] 
-                st.session_state.aya_messages.append({"role": "user", "content": f"PROBLEM:\n{user_text}"})
-                st.rerun()
-
-    elif input_type == "📕 Upload PDF":
-        uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
-        if st.button("Analyze PDF 🚀", use_container_width=True):
-            if uploaded_file:
-                try:
-                    pdf_reader = PyPDF2.PdfReader(uploaded_file)
-                    pdf_text = ""
-                    # Limit to first 2 pages to save tokens
-                    for page_num in range(min(2, len(pdf_reader.pages))):
-                        pdf_text += pdf_reader.pages[page_num].extract_text()[:3000]
-                    
-                    st.session_state.aya_messages = [] 
-                    st.session_state.aya_messages.append({"role": "user", "content": f"PROBLEM from PDF:\n{pdf_text}"})
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error reading PDF: {e}")
-
-# 7. Display Chat History
-for msg in st.session_state.aya_messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
-
-# 8. Handle AI Response
-if st.session_state.aya_messages and st.session_state.aya_messages[-1]["role"] == "user":
-    with st.chat_message("assistant"):
-        with st.spinner("🤖 AyA is thinking..."):
-            try:
-                msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.aya_messages
-                
-                chat_completion = groq_client.chat.completions.create(
-                    messages=msgs,
-                    model="llama-3.3-70b-versatile",
-                    temperature=0.5,
-                    max_tokens=6000,
-                )
-                response_text = chat_completion.choices[0].message.content
-                
-                # --- BULLETPROOF IMAGE PARSER ---
-                # 7. BULLETPROOF CHAT & IMAGE RENDERER
-def render_chat_content(text):
-    # Split text by the <IMAGE> tags
-    parts = re.split(r'<IMAGE>(.*?)</IMAGE>', text, flags=re.IGNORECASE | re.DOTALL)
-    for i, part in enumerate(parts):
-        if i % 2 == 0:
-            # Text parts
-            if part.strip():
-                st.markdown(part)
-        else:
-            # Image parts (Using Streamlit's native st.image)
-            prompt = part.strip().replace('\n', ' ')
-            safe_prompt = urllib.parse.quote(prompt)
-            url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true"
-            try:
-                st.image(url, caption=f"AyA visual: {prompt}", use_container_width=True)
-            except Exception as e:
-                st.warning("⚠️ Image took too long to generate. Try asking for a simpler diagram.")
-
-# Display Chat History
-for msg in st.session_state.aya_messages:
-    with st.chat_message(msg["role"]):
-        if msg["role"] == "assistant":
-            render_chat_content(msg["content"])
-        else:
-            st.markdown(msg["content"])
-
-# 8. Handle AI Response
-if st.session_state.aya_messages and st.session_state.aya_messages[-1]["role"] == "user":
-    with st.chat_message("assistant"):
-        with st.spinner("🤖 AyA is drawing and thinking..."):
-            try:
-                msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.aya_messages
-                
-                chat_completion = groq_client.chat.completions.create(
-                    messages=msgs,
-                    model="llama-3.3-70b-versatile",
-                    temperature=0.5,
-                    max_tokens=6000,
-                )
-                response_text = chat_completion.choices[0].message.content
-                
-                # Render text and images instantly
-                render_chat_content(response_text)
-                
-                # Save to memory
-                st.session_state.aya_messages.append({"role": "assistant", "content": response_text})
-            except Exception as e:
-                st.error(f"Error generating response: {str(e)}")
-
-# ==========================================
-# PAGE: MOCK TEST
-# ==========================================
-elif st.session_state.page == "Mock_Test":
-    st.markdown("## 📝 AI Mock Test Generator")
-    st.caption("Generate unlimited tests for any Board, Subject, or Difficulty.")
-    
-    api_key = st.secrets.get("GROQ_API_KEY")
-    if not api_key:
-        st.error("Missing API Key"); st.stop()
-    
-    client = OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
-
-    def get_questions_json(board, cls, sub, chap, num, diff, q_type):
-        safe_sub = sub.encode('ascii', 'ignore').decode('ascii').strip()
-        if q_type == "MCQ":
-            prompt = f"""
-            You are a strict Examiner for {board} Board. Subject: {safe_sub}, Class: {cls}, Chapter: {chap}.
-            Create a valid JSON list of {num} {diff} MCQs.
-            Format: [{{"id": 1, "question": "...", "options": ["A","B","C","D"], "correct_answer": "A"}}]
-            """
-        else:
-            prompt = f"""
-            You are a strict Examiner for {board} Board. Subject: {safe_sub}, Class: {cls}, Chapter: {chap}.
-            Create a valid JSON list of {num} {diff} Descriptive Questions with marks.
-            Format: [{{"id": 1, "question": "...", "marks": 5}}]
-            """
-        try:
-            res = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt + " Return ONLY JSON."}],
-                temperature=0.1
-            )
-            content = res.choices[0].message.content.replace("```json", "").replace("```", "").strip()
-            return json.loads(content)
-        except: return None
-
-    if not st.session_state.mt_questions:
-        with st.container(border=True):
-            c1, c2 = st.columns(2)
-            with c1:
-                board = st.selectbox("Board", ["CBSE", "ICSE", "State", "Other"])
-                cls = st.selectbox("Class", ["9", "10", "11", "12"])
-                diff = st.selectbox("Difficulty", ["Easy", "Medium", "Hard"])
-            with c2:
-                sub = st.text_input("Subject", "Physics")
-                chap = st.text_input("Chapter", "Thermodynamics")
-                q_type = st.radio("Format", ["MCQ", "Descriptive"], horizontal=True)
-                num = st.slider("Questions", 3, 20, 5)
-
-        if st.button("🚀 Generate Test", type="primary"):
-            if sub and chap:
-                with st.spinner("Generating Paper..."):
-                    st.session_state.mt_q_type = q_type
-                    st.session_state.mt_questions = get_questions_json(board, cls, sub, chap, num, diff, q_type)
-                    st.session_state.mt_answers = {}
-                    st.session_state.mt_feedback = None
-                    st.rerun()
-
-    else:
-        if st.session_state.mt_feedback:
-            st.success("Test Analysis Complete")
-            st.markdown(st.session_state.mt_feedback)
-            if st.button("🔄 Start New Test"):
-                st.session_state.mt_questions = None
-                st.rerun()
-        else:
-            with st.form("mock_test_form"):
-                for q in st.session_state.mt_questions:
-                    st.markdown(f"**Q{q['id']}. {q['question']}**")
-                    if st.session_state.mt_q_type == "MCQ":
-                        st.radio("Choose:", q['options'], key=f"q_{q['id']}", label_visibility="collapsed", index=None)
-                    else:
-                        st.text_area("Answer:", key=f"q_{q['id']}")
-                    st.markdown("---")
-                
-                submitted = st.form_submit_button("✅ Submit Exam")
-            
-            if submitted:
-                answers = {}
-                all_answered = True
-                for q in st.session_state.mt_questions:
-                    val = st.session_state.get(f"q_{q['id']}")
-                    if not val: all_answered = False
-                    answers[str(q['id'])] = val
-                
-                if not all_answered and st.session_state.mt_q_type == "MCQ":
-                    st.error("Please answer all questions.")
-                else:
-                    prompt = f"Grade this student. Questions: {json.dumps(st.session_state.mt_questions)}. Answers: {json.dumps(answers)}."
-                    with st.spinner("Grading..."):
-                        res = client.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=[{"role": "user", "content": prompt}],
-                            temperature=0.3
-                        )
-                        st.session_state.mt_feedback = res.choices[0].message.content
-                        st.rerun()
-
-# ==========================================
-# PAGE: LIVE CLASS
-# ==========================================
-elif st.session_state.page == "Live Class":
-    st.markdown("# 🔴 Molecular Man Live Classroom")
-    
-    if not st.session_state.logged_in:
-        # LOGIN VIEW
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.markdown('<div style="font-size: 24px; text-align: center; margin-bottom: 20px;">Restricted Access</div>', unsafe_allow_html=True)
-            with st.container(border=True):
-                username = st.text_input("👤 Username")
-                password = st.text_input("🔐 Password", type="password")
-                
-                if st.button("Login to Classroom 🚀", use_container_width=True):
-                    if login_user(username, password):
-                        st.session_state.logged_in = True
-                        st.session_state.username = username
-                        st.session_state.is_admin = (username == "Mohammed")
-                        st.rerun()
-                    else:
-                        st.error("❌ Invalid Credentials")
-    else:
-        # LOGGED IN DASHBOARD
-        col1, col2 = st.columns([3, 1])
-        with col1: 
-            st.write(f"Logged in as: **{st.session_state.username}**")
-        with col2:
-            if st.button("Logout"):
-                st.session_state.logged_in = False
-                st.session_state.username = "Student"
-                st.rerun()
-        st.divider()
-
-        if st.session_state.is_admin:
-            # --- TEACHER DASHBOARD ---
-            st.markdown("## 👨‍🏫 Teacher Command Center")
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                st.markdown("### 🔴 Live Class Controls")
-                with st.container(border=True):
-                    status = get_live_status()
-                    
-                    if status["is_live"]:
-                        st.success(f"✅ Class is LIVE: {status['topic']}")
-                        
-                        # Fix displaying link
-                        raw_link = status['link'].strip()
-                        if not raw_link.startswith("http://") and not raw_link.startswith("https://"):
-                            final_display_link = "https://" + raw_link
-                        else:
-                            final_display_link = raw_link
-
-                        st.markdown(f"**Current Link:** {final_display_link}")
-                        
-                        # Direct Link Button
-                        st.markdown(f"""
-                            <div style="text-align:center; margin: 20px;">
-                                <a href="{final_display_link}" target="_blank" style="text-decoration:none;">
-                                    <button style="background: linear-gradient(45deg, #00c853, #b2ff59); color: black; padding: 15px 30px; border: none; border-radius: 50px; font-weight: bold; font-size: 18px; cursor: pointer;">
-                                        🎥 Enter Meeting
-                                    </button>
-                                </a>
-                            </div>
-                        """, unsafe_allow_html=True)
-
-                        if st.button("End Class ⏹️", type="primary"):
-                            set_live_status(False)
-                            st.rerun()
-                    else:
-                        st.info("Start a new session")
-                        with st.form("start_live"):
-                            topic = st.text_input("Class Topic", placeholder="e.g., Thermodynamics Part 2")
-                            # Flexible meeting link input
-                            meet_link = st.text_input("Meeting Link", placeholder="Paste Google Meet / Teams / Zoom link here...")
-                            
-                            if st.form_submit_button("Go Live 📡"):
-                                if topic and meet_link:
-                                    # FIX: Auto-correct link if missing https://
-                                    if not meet_link.startswith("http://") and not meet_link.startswith("https://"):
-                                        meet_link = "https://" + meet_link
-
-                                    set_live_status(True, topic, meet_link)
-                                    add_notification(f"🔴 Live Class Started: {topic}. Join now!")
-                                    st.rerun()
-                                else:
-                                    st.warning("Please enter both Topic and Meeting Link")
-
-            with col2:
-                st.markdown("### 📢 Send Notification")
-                with st.form("notif_form"):
-                    msg = st.text_area("Announcement Message")
-                    submitted = st.form_submit_button("Send Blast 🚀", use_container_width=True)
-                    if submitted and msg:
-                        add_notification(msg)
-                        st.success("Notification Sent!")
-                
-                st.markdown("### 📜 History")
-                with st.container(border=True):
-                    for n in get_notifications()[:5]:
-                        st.markdown(f"<small>{n['date']}</small><br>{n['message']}<hr>", unsafe_allow_html=True)
-
-        else:
-            # --- STUDENT DASHBOARD ---
-            st.write("")
-            status = get_live_status()
-            
-            if status["is_live"]:
-                # FIX: Ensure link works for students
-                raw_link = status['link'].strip()
-                if not raw_link.startswith("http://") and not raw_link.startswith("https://"):
-                    final_link = "https://" + raw_link
-                else:
-                    final_link = raw_link
-
-                # Direct link button for Students
-                st.markdown(f"""
-                <div style="background: rgba(255, 0, 0, 0.1); border: 2px solid red; padding: 30px; border-radius: 15px; text-align: center; margin-bottom: 20px;">
-                    <h1 style="color: #ff4444 !important; margin:0; font-size: 40px;">🔴 LIVE NOW</h1>
-                    <h2 style="color: white !important; margin-top: 10px;">Topic: {status['topic']}</h2>
-                    <br>
-                    <div class="live-button-container">
-                        <a href="{final_link}" target="_blank" style="text-decoration:none;">
-                            <button style="background: linear-gradient(45deg, #ff0000, #ff5252); color: white; padding: 20px 40px; border: none; border-radius: 50px; font-weight: bold; font-size: 24px; cursor: pointer; box-shadow: 0 0 20px rgba(255, 0, 0, 0.5);">
-                                👉 CLICK TO JOIN CLASS
-                            </button>
-                        </a>
-                    </div>
-                    <p style="margin-top: 15px; color: #aaa;">(Opens Google Meet / Teams in new tab)</p>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                st.markdown("""
-                <div style="padding: 40px; text-align: center; border: 2px dashed #ffd700; border-radius: 15px; margin-bottom: 20px;">
-                    <h2 style="color: #888 !important;">💤 No live class right now</h2>
-                    <p>Check notifications below for schedule.</p>
-                </div>
-                """, unsafe_allow_html=True)
-
-            # Notifications
-            st.markdown("### 🔔 Notice Board")
-            notifs = get_notifications()
-            if notifs:
-                for n in notifs:
-                    st.markdown(f"""
-                    <div class="notif-card">
-                        <div style="color: #ffd700; font-size: 12px; font-weight: bold;">📅 {n['date']}</div>
-                        <div style="color: white; font-size: 16px;">{n['message']}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-            else:
-                st.info("No new announcements.")
-
-# ==========================================
-# PAGE: SERVICES
-# ==========================================
-elif st.session_state.page == "Services":
-    st.markdown("# 📚 Our Services")
-    st.markdown("## 🎓 Subjects We Teach")
-    sub1, sub2 = st.columns(2)
-    with sub1:
-        with st.container(border=True):
-            st.markdown("### 📐 Mathematics")
-            st.write("Classes 6-12 (CBSE/State/Commerce/Science)")
-        st.write("")
-        with st.container(border=True):
-            st.markdown("### ⚗️ Chemistry")
-            st.write("NEET/JEE Chemistry, Organic & Inorganic")
-    with sub2:
-        with st.container(border=True):
-            st.markdown("### ⚡ Physics")
-            st.write("Conceptual clarity & Numerical problem solving")
-        st.write("")
-        with st.container(border=True):
-            st.markdown("### 🧬 Biology")
-            st.write("Botany, Zoology & NEET Prep")
-
-# ==========================================
-# PAGE: TESTIMONIALS (FIXED FOR READABILITY)
-# ==========================================
-elif st.session_state.page == "Testimonials":
-    st.markdown("# 💬 Student Success Stories")
-    t1, t2 = st.columns(2)
-    
-    def testimonial_card(text, author):
-        # NOTE: Using the .white-card-fix class defined in CSS
-        st.markdown(f"""
-        <div class="white-card-fix">
-            <div style="color:#333; font-style:italic;">"{text}"</div>
-            <div style="color:#2c5282; font-weight:bold; margin-top:10px; text-align:right;">- {author}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with t1:
-        testimonial_card("Sir's organic chemistry teaching helped me a lot!", "Pranav.S, Class 12")
-        testimonial_card("Math grades improved from 60% to 95%.", "Mrs. Lakshmi, Parent")
-    with t2:
-        testimonial_card("Physics numericals used to scare me. Now I solve them confidently.", "Rahul M., JEE Aspirant")
-        testimonial_card("The Python bootcamp was amazing!", "Divya S., College Student")
-
-    st.write("")
-    st.markdown("## 🏆 Our Results")
-    r1, r2, r3 = st.columns(3)
-    
-    with r1:
-        st.markdown('<div class="white-card-fix" style="text-align:center;"><div style="color:#555;font-weight:bold;">Board Exams</div><div style="font-size:28px;color:black;font-weight:bold;">80%</div><div style="font-size:12px;color:#666;">Average Score</div></div>', unsafe_allow_html=True)
-    with r2:
-        st.markdown('<div class="white-card-fix" style="text-align:center;"><div style="color:#555;font-weight:bold;">Improvement</div><div style="font-size:28px;color:black;font-weight:bold;">60%</div><div style="font-size:12px;color:#666;">vs. Baseline</div></div>', unsafe_allow_html=True)
-    with r3:
-        st.markdown('<div class="white-card-fix" style="text-align:center;"><div style="color:#555;font-weight:bold;">Doubt Support</div><div style="font-size:28px;color:black;font-weight:bold;">&lt; 2 Hrs</div><div style="font-size:12px;color:#666;">Resolution Time</div></div>', unsafe_allow_html=True)
-
-    st.write("")
-    st.markdown("## 💡 Why Parents Trust Us")
-    w1, w2, w3 = st.columns(3)
-    
-    with w1:
-        st.markdown('<div class="white-card-fix"><h3 style="color:#2c5282;margin:0;">🎓 Expert Educator</h3><p style="color:#333;margin-top:10px;">One-on-one mentoring that identifies specific learning gaps.</p></div>', unsafe_allow_html=True)
-    with w2:
-        st.markdown('<div class="white-card-fix"><h3 style="color:#2c5282;margin:0;">🧠 Conceptual</h3><p style="color:#333;margin-top:10px;">No rote memorization. We focus on "Why" and "How".</p></div>', unsafe_allow_html=True)
-    with w3:
-        st.markdown('<div class="white-card-fix"><h3 style="color:#2c5282;margin:0;">💰 Fair Pricing</h3><p style="color:#333;margin-top:10px;">No hidden fees. Quality education for every family.</p></div>', unsafe_allow_html=True)
-
-    st.write("")
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        st.link_button("📱 Book Free Trial", "https://wa.me/917339315376", use_container_width=True)
-
-# ==========================================
-# PAGE: BOOTCAMP
-# ==========================================
-elif st.session_state.page == "Bootcamp":
-    st.markdown("# 🐍 Python for Data Science & AI")
-    
-    boot1, boot2 = st.columns([1, 1.5])
-    
-    with boot1:
-        # Tries to render poster, then python_bootcamp, then default text
-        if not render_image("poster", use_column_width=True):
-            if not render_image("python_bootcamp", use_column_width=True):
-                with st.container(border=True):
-                    st.markdown("# 🐍")
-                    st.markdown("## Python")
-                    st.markdown("### Weekend Intensive Program")
-    
-    with boot2:
-        with st.container(border=True):
-            st.markdown("### Weekend Intensive Program")
-            st.write("Master the most in-demand programming language")
-            st.write("")
-            
-            st.markdown("👨‍🏫 **Instructor:** Mohammed Salmaan M")
-            st.caption("Data Science & AI Expert | Created Ed-Tech Plotform - The Molecular Man Expert Tuition Solutions")
-            st.write("")
-            
-            st.markdown("📅 **Schedule:** Saturdays & Sundays")
-            st.caption("1 hours per session | Morning & Evening batches")
-            st.write("")
-            
-            st.markdown("💻 **Requirements:** Laptop with internet")
-            st.caption("We'll help you setup Jupyter Notebook & VS Code")
-            st.write("")
-            
-            with st.expander("📚 Curriculum Highlights"):
-                st.write("• Python Basics & Data Structures")
-                st.write("• NumPy & Pandas for Data Analysis")
-                st.write("• Data Visualization with Matplotlib")
-                st.write("• Introduction to Machine Learning")
-                st.write("• Real-world Project: Build your first AI model")
-        
-        st.write("")
-        st.link_button("📱 Enroll Now", "[https://wa.me/917339315376](https://wa.me/917339315376)", use_container_width=True)
-
-#==========================================
-# PAGE: CONTACT
-# ==========================================
-# ==========================================
-# PAGE: CONTACT (FAILSAFE VERSION)
-# ==========================================
-elif st.session_state.page == "Contact":
-    import urllib.parse # Required for the link generation
-
-    st.markdown("# 📞 Get In Touch")
-    c1, c2 = st.columns([1, 1])
-    
-    with c1:
-        with st.container(border=True):
-            st.markdown("### Contact Information")
-            st.markdown("**📱 Phone:** +91 73393 15376")
-            st.markdown("**✉️ Email:** the.molecularmanexpert@gmail.com")
-            st.write("")
-            st.markdown("### 📍 Location")
-            st.write("Madurai, Tamil Nadu")
-            st.write("")
-            st.link_button("💬 Chat on WhatsApp", "https://wa.me/917339315376", use_container_width=True)
-
-    with c2:
-        with st.container(border=True):
-            st.markdown("### Send us a Message")
-            
-            # We use a form to collect data, but we don't submit it to a server
-            with st.container():
-                name = st.text_input("Name")
-                phone = st.text_input("Phone")
-                grade = st.selectbox("Grade", ["Class 6-8", "Class 9-10", "Class 11-12", "Repeater/Other"])
-                msg = st.text_area("Message")
-                
-                # Logic to generate the mailto link
-                if name and phone and msg:
-                    # Create a safe URL string for the email body
-                    subject = f"Tuition Inquiry from {name}"
-                    body = f"Name: {name}\nPhone: {phone}\nGrade: {grade}\n\nMessage:\n{msg}"
-                    
-                    # URL Encode the strings so they work in a link
-                    safe_subject = urllib.parse.quote(subject)
-                    safe_body = urllib.parse.quote(body)
-                    
-                    # The Magic Link
-                    mailto_link = f"mailto:the.molecularmanexpert@gmail.com?subject={safe_subject}&body={safe_body}"
-                    
-                    st.markdown(f"""
-                    <a href="{mailto_link}" target="_blank" style="text-decoration: none;">
-                        <div style="
-                            width: 100%;
-                            background: linear-gradient(90deg, #1e3a5f, #3b6b9e);
-                            color: white;
-                            text-align: center;
-                            padding: 12px;
-                            border-radius: 25px;
-                            font-weight: bold;
-                            border: 1px solid white;
-                            margin-top: 10px;
-                            cursor: pointer;
-                        ">
-                            🚀 Click to Send Email
-                        </div>
-                    </a>
-                    <div style="text-align:center; font-size:12px; color:#aaa; margin-top:5px;">
-                        (Opens your default email app)
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    # Disabled looking button if fields are empty
-                    st.markdown("""
-                    <div style="
-                        width: 100%;
-                        background: #444;
-                        color: #888;
-                        text-align: center;
-                        padding: 12px;
-                        border-radius: 25px;
-                        font-weight: bold;
-                        border: 1px solid #555;
-                        margin-top: 10px;
-                    ">
-                        Fill details to enable Send
-                    </div>
-                    """, unsafe_allow_html=True)
-# -----------------------------------------------------------------------------
-# FOOTER
-# -----------------------------------------------------------------------------
-st.write("")
-st.write("")
-with st.container(border=True):
-    # 1. CSS Animation Logic
+elif st.session_state.page == "AyA_AI":
+    # CSS FIX: This makes the input text visible
     st.markdown("""
-        <style>
-        @keyframes gradient-animation {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
+    <style>
+        .stTextArea textarea {
+            color: #ffffff !important;
+            background-color: #262730 !important;
+            border: 1px solid #4B4B4B;
         }
-        
-        .animated-footer-text {
-            font-weight: 800;
-            font-size: 24px;
-            text-transform: uppercase;
-            text-align: center;
-            letter-spacing: 2px;
-            /* The Color Gradient: Add more colors here if you want */
-            background: linear-gradient(45deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000);
-            background-size: 300%;
-            
-            /* Clip the background to the text */
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent; 
-            background-clip: text;
-            color: transparent;
-            
-            /* The Animation Speed */
-            animation: gradient-animation 10s ease infinite;
+        .stChatInput textarea {
+            color: #ffffff !important;
+            background-color: #262730 !important;
         }
-        </style>
-        
-        <div class="animated-footer-text">
-            PRECISE • PASSIONATE • PROFESSIONAL
-        </div>
+        ::placeholder {
+            color: #d3d3d3 !important;
+            opacity: 1;
+        }
+    </style>
     """, unsafe_allow_html=True)
+
+    # Header
+    st.markdown("## 🧠 AyA - The Molecular Man AI")
+    st.caption("Your personal AI Tutor for Math, Science, Coding, and Visual Diagrams.")
+
+    # API Key Setup
+    try:
+        groq_api_key = st.secrets["GROQ_API_KEY"]
+        groq_client = Groq(api_key=groq_api_key)
+    except Exception:
+        st.error("⚠️ GROQ_API_KEY not found in Secrets! Please check your .streamlit/secrets.toml file.")
+        st.stop()
+
+    SYSTEM_PROMPT = """You are **Aya**, the Lead AI Tutor at **The Molecular Man Expert Tuition Solutions**. 
+    Your Mission: Guide students from "Zero" to "Hero".
+    Tone: Encouraging, clear, patient, and intellectually rigorous.
+    Structure: 🧠 CONCEPT -> 🌍 CONTEXT -> ✍️ SOLUTION -> ✅ ANSWER -> 🚀 HERO TIP.
+
+    CRITICAL INSTRUCTION FOR IMAGES: 
+    If a student asks for a visual, diagram, or illustration, output a simple text description wrapped in image tags.
+    Format: <IMAGE>Detailed description of the educational diagram</IMAGE>
     
-    # The Copyright Caption
-    st.markdown(
-        "<div style='text-align: center; color: gray; font-size: 12px; margin-top: 10px;'>"
-        "© 2026 The Molecular Man Expert Tuition Solutions | Mohammed Salmaan M. All Rights Reserved."
-        "</div>", 
-        unsafe_allow_html=True
-    )
+    Example:
+    <IMAGE>Highly detailed educational diagram showing lateral displacement of a light ray passing through a glass slab</IMAGE>
+    """
+
+    # Input Section
+    with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
+        input_type = st.radio("Input Method:", ["📄 Text Problem", "📕 Upload PDF"], horizontal=True)
+        
+        if input_type == "📄 Text Problem":
+            user_text = st.text_area("Paste question:", height=100)
+            if st.button("Ask AyA 🚀", use_container_width=True):
+                if user_text:
+                    st.session_state.aya_messages = [] 
+                    st.session_state.aya_messages.append({"role": "user", "content": f"PROBLEM:\n{user_text}"})
+                    st.rerun()
+
+        elif input_type == "📕 Upload PDF":
+            uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
+            if st.button("Analyze PDF 🚀", use_container_width=True):
+                if uploaded_file:
+                    try:
+                        pdf_reader = PyPDF2.PdfReader(uploaded_file)
+                        pdf_text = ""
+                        for page_num in range(min(2, len(pdf_reader.pages))):
+                            pdf_text += pdf_reader.pages[page_num].extract_text()[:3000]
+                        
+                        st.session_state.aya_messages = [] 
+                        st.session_state.aya_messages.append({"role": "user", "content": f"PROBLEM from PDF:\n{pdf_text}"})
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error reading PDF: {e}")
+
+    # --- BULLETPROOF CHAT RENDERER ---
+    # This function catches BOTH normal markdown images AND custom <IMAGE> tags, 
+    # forcing Streamlit to render them natively so they never break.
+    def render_chat_content(text):
+        # 1. Convert any stubborn markdown images ![alt](url) into <IMAGE> tags
+        text = re.sub(r'!\[([^\]]*)\]\([^\)]*\)', r'<IMAGE>\1</IMAGE>', text)
+        
+        # 2. Split and render
+        parts = re.split(r'<IMAGE>(.*?)</IMAGE>', text, flags=re.IGNORECASE | re.DOTALL)
+        for i, part in enumerate(parts):
+            if i % 2 == 0:
+                if part.strip():
+                    st.markdown(part)
+            else:
+                pr
+
 
 
 
