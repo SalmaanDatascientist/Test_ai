@@ -6,7 +6,6 @@ import datetime
 import uuid
 import requests
 import hashlib
-import random
 from PIL import Image
 from groq import Groq
 from openai import OpenAI
@@ -14,6 +13,13 @@ import PyPDF2
 import re
 import urllib.parse
 from streamlit_gsheets import GSheetsConnection
+
+# 🚨 IMPORT THE NEW WEB SEARCH ENGINE
+try:
+    from duckduckgo_search import DDGS
+    HAS_DDGS = True
+except ImportError:
+    HAS_DDGS = False
 
 # -----------------------------------------------------------------------------
 # 1. PAGE CONFIGURATION
@@ -101,14 +107,11 @@ def login_user(username, password):
     try:
         conn = st.connection("gsheets", type=GSheetsConnection)
         df = conn.read(spreadsheet="https://docs.google.com/spreadsheets/d/18o58Ot15bBL2VA4uMib_HWJWgd112e2dKuil2YwojDk/edit?usp=sharing")
-        
         df.columns = df.columns.str.strip()
         df['username'] = df['username'].astype(str).str.strip()
         df['password'] = df['password'].astype(str).str.strip()
-        
         clean_username = username.strip()
         clean_password = password.strip()
-        
         user_row = df[df['username'] == clean_username]
         if not user_row.empty:
             stored_password = str(user_row.iloc[0]['password'])
@@ -154,11 +157,9 @@ st.markdown("""
     .stApp { background: linear-gradient(135deg, #004e92 0%, #000428 100%) !important; background-attachment: fixed; }
     .block-container { padding-top: 1rem !important; padding-bottom: 5rem !important; }
     h1, h2, h3, h4, h5, h6, p, div, span, li, label, .stMarkdown { color: #ffffff !important; }
-    
     div.stButton > button { background: linear-gradient(90deg, #1e3a5f, #3b6b9e, #1e3a5f); color: white !important; border-radius: 25px !important; border: 1px solid rgba(255,255,255,0.2) !important; }
     div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
     div[data-testid="stFormSubmitButton"] > button { background: #1e3a5f !important; color: #ffffff !important; border: 2px solid white !important; }
-    
     .stTextInput>div>div>input, .stTextArea>div>div>textarea, .stSelectbox>div>div { background-color: rgba(255, 255, 255, 0.1) !important; color: #ffffff !important; border-radius: 8px; border: 1px solid rgba(255,255,255,0.3) !important; }
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     .stDeployButton {display: none;}
@@ -308,17 +309,22 @@ elif st.session_state.page == "AyA_AI":
         st.error("⚠️ GROQ_API_KEY not found in Secrets! Please check your .streamlit/secrets.toml file.")
         st.stop()
 
-    # 🚨 STRICT JSON PROMPT - PREVENTS URL CORRUPTION AND TEXT ERRORS
-    SYSTEM_PROMPT = """You are **Aya**, the Lead AI Tutor at **The Molecular Man Expert Tuition Solutions**. 
+    if not HAS_DDGS:
+        st.error("🚨 **CRITICAL ERROR:** You must add `duckduckgo-search` to your `requirements.txt` file for the new image engine to work.")
+        st.stop()
 
-    CRITICAL INSTRUCTION - JSON OUTPUT ONLY:
-    You MUST output your response as a valid JSON object. DO NOT output any markdown outside of the JSON.
-    
-    Use this exact JSON format:
-    {
-      "text": "Your detailed educational response goes here. Use markdown formatting.",
-      "image_prompt": "If a diagram is needed, write a short, 5-to-10 word prompt describing an educational diagram (e.g., 'detailed diagram of lateral displacement in a glass slab'). Keep it under 10 words to prevent URL corruption. Use ONLY letters and spaces. If no image is needed, write null."
-    }
+    # 🚨 THE INDESTRUCTIBLE FORMATTING PROMPT 🚨
+    SYSTEM_PROMPT = """You are **Aya**, the Lead AI Tutor at **The Molecular Man Expert Tuition Solutions**. 
+    Your Mission: Guide students from "Zero" to "Hero".
+
+    CRITICAL INSTRUCTION - STRICT FORMATTING:
+    You MUST format your response using EXACTLY these two sections. Do not add any conversational filler before or after these labels.
+
+    ===EXPLANATION===
+    [Your detailed educational response goes here. Use markdown, emojis, clear formatting, and step-by-step logic.]
+
+    ===SEARCH_TERM===
+    [If a visual diagram is needed to help explain the concept, write a highly specific 3-to-6 word search query to find a real educational textbook diagram on the web (e.g., "lateral displacement glass slab diagram", "human reproductive system anatomy diagram"). If NO image is needed, write the exact word "NONE"]
     """
 
     with st.expander("📝 New Problem Input", expanded=(len(st.session_state.aya_messages) == 0)):
@@ -354,7 +360,7 @@ elif st.session_state.page == "AyA_AI":
 
     if st.session_state.aya_messages and st.session_state.aya_messages[-1]["role"] == "user":
         with st.chat_message("assistant"):
-            with st.spinner("🤖 AyA is analyzing and drawing..."):
+            with st.spinner("🤖 AyA is analyzing..."):
                 try:
                     msgs = [{"role": "system", "content": SYSTEM_PROMPT}] + st.session_state.aya_messages
                     
@@ -364,57 +370,57 @@ elif st.session_state.page == "AyA_AI":
                         temperature=0.5
                     )
                     
-                    raw_response = chat_completion.choices[0].message.content or ""
+                    response_text = chat_completion.choices[0].message.content or ""
                     
-                    ai_text = raw_response
-                    img_prompt = None
+                    # --- 🚨 THE NEW LIVE WEB SEARCH ENGINE 🚨 ---
+                    if "===SEARCH_TERM===" in response_text:
+                        parts = response_text.split("===SEARCH_TERM===")
+                        ai_explanation = parts[0].replace("===EXPLANATION===", "").strip()
+                        search_term = parts[1].strip()
+                    else:
+                        ai_explanation = response_text.replace("===EXPLANATION===", "").strip()
+                        search_term = "NONE"
                     
-                    # Cleanly extract JSON
-                    try:
-                        json_match = re.search(r'\{[\s\S]*\}', raw_response)
-                        if json_match:
-                            data = json.loads(json_match.group())
-                            ai_text = data.get("text", raw_response)
-                            img_prompt = data.get("image_prompt", None)
-                    except Exception:
-                        pass
+                    # 1. Print Text
+                    st.markdown(ai_explanation)
                     
-                    st.markdown(ai_text)
-                    
-                    # 🚨 THE UNBREAKABLE FLUX IMAGE RENDERER 🚨
-                    if img_prompt and str(img_prompt).lower() not in ['null', 'none', '']:
-                        # Force prompt to be short and clean so it doesn't break the web URL
-                        clean_prompt = re.sub(r'[^a-zA-Z0-9\s]', '', str(img_prompt))[:100]
-                        prompt_with_style = f"Highly detailed educational textbook diagram of {clean_prompt}, clear labels, white background"
-                        safe_prompt = urllib.parse.quote(prompt_with_style)
-                        
-                        seed = random.randint(1, 100000)
-                        
-                        # We use the official FLUX engine endpoint. No backend fetching.
-                        url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&model=flux&nologo=true&seed={seed}"
-                        
-                        # The Fallback Image. If Pollinations NSFW filter blocks "breast", this beautiful graphic loads instead.
-                        error_img = "https://placehold.co/800x400/1e3a5f/FFFFFF/png?text=Image+Blocked+By+AI+Safety+Filter"
-                        
-                        st.markdown(f"🎨 **AyA Visual Engine:** *{clean_prompt}*")
-                        
-                        # The raw HTML injection. 
-                        # `referrerpolicy` hides Streamlit from Cloudflare.
-                        # `onerror` prevents the broken '0' icon and gracefully swaps to the error image.
-                        html_code = f'''
-                        <div style="margin: 15px 0;">
-                            <img src="{url}" 
-                                 referrerpolicy="no-referrer" 
-                                 style="width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" 
-                                 onerror="this.onerror=null; this.src='{error_img}';">
-                        </div>
-                        '''
-                        st.markdown(html_code, unsafe_allow_html=True)
-                    
-                    st.session_state.aya_messages.append({"role": "assistant", "content": ai_text})
+                    # 2. Fetch and Render Real Image from the Web
+                    if search_term and search_term.upper() != "NONE":
+                        with st.spinner(f"🔍 Searching the web for real diagram: '{search_term}'..."):
+                            try:
+                                # Fetch actual image from live web search
+                                results = DDGS().images(search_term, safesearch="moderate", max_results=1)
+                                
+                                if results:
+                                    img_url = results[0].get('image')
+                                    img_title = results[0].get('title', search_term)
+                                    
+                                    # Secure HTML Injection to prevent hotlinking blocks
+                                    html_code = f'''
+                                    <div style="margin: 20px 0; padding: 15px; border: 1px solid #444; border-radius: 10px; background: rgba(0,0,0,0.2);">
+                                        <p style="color: #00ffff; font-size: 14px; font-weight: bold; margin-bottom: 10px; text-transform: uppercase;">
+                                            🌐 Live Web Diagram
+                                        </p>
+                                        <img src="{img_url}" referrerpolicy="no-referrer" 
+                                             style="width: 100%; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);" 
+                                             onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+                                        <div style="display: none; padding: 15px; background: rgba(255,0,0,0.1); color: #ff8888; border-radius: 8px; text-align: center;">
+                                            ⚠️ <strong>Image Blocked:</strong> The source website prevented the image from displaying here. Please ask the question again to fetch a different image.
+                                        </div>
+                                        <p style="color: #aaa; font-size: 12px; font-style: italic; text-align: center; margin-top: 10px;">Source: {img_title[:60]}...</p>
+                                    </div>
+                                    '''
+                                    st.markdown(html_code, unsafe_allow_html=True)
+                                else:
+                                    st.info(f"No specific diagram found on the web for '{search_term}'.")
+                            except Exception as e:
+                                st.warning("⚠️ Web image search encountered an error.")
+
+                    # 3. Save ONLY the text to history to keep the app clean
+                    st.session_state.aya_messages.append({"role": "assistant", "content": ai_explanation})
 
                 except Exception as e:
-                    st.error(f"⚠️ API Error: {str(e)}")
+                    st.error(f"⚠️ Groq API Error: {str(e)}")
 
     if st.session_state.aya_messages:
         if user_input := st.chat_input("Ask a follow-up..."):
@@ -564,7 +570,6 @@ elif st.session_state.page == "Live Class":
                     
                     if status["is_live"]:
                         st.success(f"✅ Class is LIVE: {status['topic']}")
-                        
                         raw_link = status['link'].strip()
                         if not raw_link.startswith("http://") and not raw_link.startswith("https://"):
                             final_display_link = "https://" + raw_link
@@ -572,7 +577,6 @@ elif st.session_state.page == "Live Class":
                             final_display_link = raw_link
 
                         st.markdown(f"**Current Link:** {final_display_link}")
-                        
                         st.markdown(f"""
                             <div style="text-align:center; margin: 20px;">
                                 <a href="{final_display_link}" target="_blank" style="text-decoration:none;">
@@ -596,7 +600,6 @@ elif st.session_state.page == "Live Class":
                                 if topic and meet_link:
                                     if not meet_link.startswith("http://") and not meet_link.startswith("https://"):
                                         meet_link = "https://" + meet_link
-
                                     set_live_status(True, topic, meet_link)
                                     add_notification(f"🔴 Live Class Started: {topic}. Join now!")
                                     st.rerun()
