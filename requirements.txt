@@ -1,8 +1,9 @@
 streamlit
-openai
 groq
-requests
-Pillow
+openai
 PyPDF2
 st-gsheets-connection
+Pillow
+requests
+
 
