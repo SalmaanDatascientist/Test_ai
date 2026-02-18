@@ -4,3 +4,5 @@ groq
 requests
 Pillow
 PyPDF2
+st-gsheets-connection
+
