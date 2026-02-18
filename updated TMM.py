@@ -13,6 +13,7 @@ import PyPDF2
 import re
 import urllib.parse
 from streamlit_gsheets import GSheetsConnection
+import streamlit.components.v1 as components # 🚨 ADDED FOR IFRAME INJECTION
 
 # -----------------------------------------------------------------------------
 # 1. PAGE CONFIGURATION
@@ -482,7 +483,7 @@ elif st.session_state.page == "AyA_AI":
                     except Exception as e:
                         st.error(f"Error reading PDF: {e}")
 
-    # --- 🚨 THE FINAL, CLOUDFLARE-PROOF HTML INJECTION PARSER 🚨 ---
+    # --- 🚨 THE ISOLATED IFRAME PARSER (CLOUDFLARE BYPASS) 🚨 ---
     def render_chat_content(text):
         if not text: 
             return
@@ -510,21 +511,55 @@ elif st.session_state.page == "AyA_AI":
                     seed = str(uuid.uuid4())[:6]
                     url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=800&height=400&nologo=true&seed={seed}"
                     
-                    # Instead of having the backend server download it (which triggers Cloudflare blocks),
-                    # We inject a pure HTML <img> tag. This forces the student's personal web browser 
-                    # to download the image directly, completely bypassing Streamlit Cloud's IP address.
-                    # It also includes an 'onerror' script that cleanly handles NSFW blocks without crashing.
-                    html_code = f'''
-                    <div style="margin: 15px 0; border: 1px solid #444; border-radius: 10px; padding: 10px; background: rgba(0,0,0,0.2);">
-                        <img src="{url}" alt="{short_prompt}" style="max-width: 100%; border-radius: 8px; display: block; margin: 0 auto; box-shadow: 0 4px 8px rgba(0,0,0,0.3);" 
-                        onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-                        <div style="display: none; color: #ff8888; text-align: center; padding: 10px;">
-                            ⚠️ Diagram unavailable (Content Filter Blocked). Try a more clinical description.
-                        </div>
-                        <p style="color: #aaa; font-size: 13px; text-align: center; margin-top: 8px; font-style: italic; margin-bottom: 0;">AyA Visual: {short_prompt}</p>
-                    </div>
-                    '''
-                    st.markdown(html_code, unsafe_allow_html=True)
+                    # 🚨 THE FIX: st.components.v1.html creates an isolated iframe.
+                    # Streamlit's security sanitizer CANNOT touch this code.
+                    # <meta name="referrer" content="no-referrer"> hides your app URL from Cloudflare, so it thinks the student is just a normal browser user.
+                    html_code = f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                    <meta name="referrer" content="no-referrer">
+                    <style>
+                        body {{ 
+                            margin: 0; 
+                            display: flex; 
+                            flex-direction: column; 
+                            align-items: center; 
+                            font-family: sans-serif; 
+                            background: transparent; 
+                            color: white;
+                        }}
+                        img {{ 
+                            max-width: 100%; 
+                            border-radius: 8px; 
+                            box-shadow: 0 4px 8px rgba(0,0,0,0.5); 
+                        }}
+                        .caption {{ 
+                            color: #aaa; 
+                            font-size: 13px; 
+                            margin-top: 8px; 
+                            font-style: italic; 
+                            text-align: center; 
+                        }}
+                        .error {{ 
+                            display: none; 
+                            color: #ff8888; 
+                            padding: 15px; 
+                            border: 1px dashed #ff4444; 
+                            border-radius: 8px; 
+                            background: rgba(255,0,0,0.1); 
+                        }}
+                    </style>
+                    </head>
+                    <body>
+                        <img src="{url}" alt="{short_prompt}" onerror="this.style.display='none'; document.getElementById('err').style.display='block';">
+                        <div id="err" class="error">⚠️ Diagram blocked by external server filters. Try a more clinical description.</div>
+                        <div class="caption">AyA Visual: {short_prompt}</div>
+                    </body>
+                    </html>
+                    """
+                    # Render the iframe directly in the chat!
+                    components.html(html_code, height=450)
 
     for msg in st.session_state.aya_messages:
         with st.chat_message(msg["role"]):
@@ -547,7 +582,7 @@ elif st.session_state.page == "AyA_AI":
                     
                     response_text = chat_completion.choices[0].message.content or ""
                     
-                    # Pass it to our HTML injection parser
+                    # Pass it to our unblockable HTML iframe parser
                     render_chat_content(response_text)
                     
                     # Save it
